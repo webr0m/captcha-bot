@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "captcha-bot",
+  "compatibility_date": "2025-09-01",
+  "main": "src/index.ts",
+  "workers_dev": true,
+  "log": true,
+  "observability": {
+    "logs": {
+      "enable": true
+    }
+  }
+}

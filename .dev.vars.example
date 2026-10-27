@@ -1,0 +1,5 @@
+# Variables locales de desarrollo (copiar a .dev.vars y completar)
+BOT_TOKEN=
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+DEEPL_AUTH_KEY=

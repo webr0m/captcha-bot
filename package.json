@@ -1,0 +1,16 @@
+{
+  "name": "captcha-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Captcha anti-spam Telegram bot migrated from Lua (telegram-bot-lua + copas) to Cloudflare Workers",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "cf-typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250901.0",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.36.0"
+  }
+}

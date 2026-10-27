@@ -42,6 +42,30 @@ export class TelegramApi {
     return this.call<any>("sendChatAction", { chat_id: chatId, action });
   }
 
+  async sendSticker(chatId: number, fileId: string): Promise<any> {
+    return this.call<any>("sendSticker", { chat_id: chatId, sticker: fileId });
+  }
+
+  async sendVideo(chatId: number, fileId: string, caption: string, extra: Record<string, any> = {}): Promise<any> {
+    return this.call<any>("sendVideo", { chat_id: chatId, video: fileId, caption, ...extra });
+  }
+
+  async sendAnimation(chatId: number, fileId: string, caption: string, extra: Record<string, any> = {}): Promise<any> {
+    return this.call<any>("sendAnimation", { chat_id: chatId, animation: fileId, caption, ...extra });
+  }
+
+  async sendDocument(chatId: number, fileId: string, caption: string, extra: Record<string, any> = {}): Promise<any> {
+    return this.call<any>("sendDocument", { chat_id: chatId, document: fileId, caption, ...extra });
+  }
+
+  async sendVoice(chatId: number, fileId: string, extra: Record<string, any> = {}): Promise<any> {
+    return this.call<any>("sendVoice", { chat_id: chatId, voice: fileId, ...extra });
+  }
+
+  async sendAudio(chatId: number, fileId: string, caption: string, extra: Record<string, any> = {}): Promise<any> {
+    return this.call<any>("sendAudio", { chat_id: chatId, audio: fileId, caption, ...extra });
+  }
+
   async editMessageText(chatId: number, messageId: number, text: string, extra: Record<string, any> = {}): Promise<any> {
     return this.call<any>("editMessageText", { chat_id: chatId, message_id: messageId, text, ...extra });
   }

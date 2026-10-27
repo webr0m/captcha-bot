@@ -6,6 +6,8 @@ import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
 import { autoTranslate } from "./translator";
 import * as captcha from "./captcha";
+import { issueDice, handleDiceCallback } from "./dice";
+import { handleBroadcast } from "./broadcast";
 
 export type BotEnv = RedisEnv & { BOT_TOKEN: string; DEEPL_AUTH_KEY?: string };
 
@@ -77,6 +79,19 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
 
   if (state === "ok") return;
 
+  // /broadcast <reply> -> enviar a usuarios conocidos (chats privados del bot)
+  if (typeof msg.text === "string" && msg.text.startsWith("/broadcast")) {
+    const chatIdNum = Number(msg.chat.id);
+    if (chatIdNum < 0) {
+      if (!msg.reply_to_message) {
+        await api.sendMessage(chatIdNum, "❗ Responde al mensaje que quieras retransmitir con /broadcast");
+        return;
+      }
+      await handleBroadcast(env, api, chatIdNum, msg.reply_to_message);
+      return;
+    }
+  }
+
   // Nuevo miembro en grupo -> lanzar captcha
   if (msg.new_chat_member && msg.chat && msg.chat.type === "supergroup") {
     const user = msg.new_chat_member;
@@ -86,6 +101,11 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     if (!(await captcha.isAdmin(env, api, chatId, userIdNum))) return;
     if (user.is_bot) return;
     if (!(await captcha.getCaptchaEnabled(env, chatId))) return;
+    const modeNow = await captcha.getCaptchaMode(env, chatId);
+    if (modeNow === "dice") {
+      await issueDice(env, api, chatId, userIdNum, msg);
+      return;
+    }
     await captcha.issueCaptcha(env, api, chatId, userIdNum, user, msg);
   }
 }
@@ -101,6 +121,11 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
   const data = cb.data;
   const rdb = createRedis(env);
   const lang = (await captcha.getGroupLang(env, chatId ?? 0)) || "es";
+
+  if (data.startsWith("dice_answer:")) {
+    await handleDiceCallback(env, api, cb);
+    return;
+  }
 
   let m: RegExpMatchArray | null;
 

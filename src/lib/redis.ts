@@ -1,7 +1,7 @@
 /**
  * Cliente Redis para Cloudflare Workers.
  * Usa la API REST de Upstash (compatible con Redis) vía fetch.
- * Soportado por el bot: GET, SET, SETEX, DEL, INCR, EXPIRE, SMEMBERS, SISMEMBER, SADD, SREM, PING.
+ * Soportado por el bot: GET, SET, SETEX, DEL, INCR, EXPIRE, SMEMBERS, SISMEMBER, SADD, SREM, KEYS, PING.
  */
 
 export interface RedisEnv {
@@ -41,6 +41,7 @@ export interface RedisClient {
   sismember(key: string, member: string): Promise<boolean>;
   sadd(key: string, member: string): Promise<number>;
   srem(key: string, member: string): Promise<number>;
+  keys(pattern: string): Promise<string[]>;
 }
 
 export function createRedis(env: RedisEnv): RedisClient {
@@ -87,6 +88,11 @@ export function createRedis(env: RedisEnv): RedisClient {
     async srem(key, member) {
       const result = await upstashCommand(env, ["SREM", key, member]);
       return Number(result);
+    },
+    async keys(pattern) {
+      const result = await upstashCommand(env, ["KEYS", pattern]);
+      if (Array.isArray(result)) return result.map((k) => String(k));
+      return [];
     },
   };
 }

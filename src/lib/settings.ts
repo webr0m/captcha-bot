@@ -451,7 +451,12 @@ export async function handleConfigCommand(env: RedisEnv & { BOT_TOKEN: string },
     const owner = key.replace(/^group_known:/, "");
     const n = Number(owner);
     if (Number.isFinite(n) && owner !== "all" && !key.startsWith("group_known:tmp:")) {
-      if ((await rdb.get(`group_access:${n}:${userId}`)) === "true") groups.push(n);
+      // El acceso cacheado puede estar desactualizado; comprobar también en vivo.
+      const cached = (await rdb.get(`group_access:${n}:${userId}`)) === "true";
+      if (cached || (await captcha.isAdmin(env, api, n, userId))) {
+        if (!cached) await rdb.set(`group_access:${n}:${userId}`, "true");
+        groups.push(n);
+      }
     }
   }
   const kb = { inline_keyboard: groups.slice(0, 8).map((g) => [{ text: `⚙️ ${g}`, callback_data: `settings:${g}` }]) };

@@ -27,14 +27,14 @@ function randToken(n: number): string {
 
 async function getDiceSticker(env: any, chatId: number, face: string): Promise<string | null> {
   const manual = FILE_IDS[face];
-  if (manual && manual !== "") return manual;
+  if (manual) return manual;
   const v = await createRedis(env).get(`group:${chatId}:dice:${face}`);
   return v;
 }
 
 async function getDiceSpin(env: any, chatId: number): Promise<string | null> {
   const manual = FILE_ID_DICE_SPIN;
-  if (manual && manual !== "") return manual;
+  if (manual) return manual;
   const v = await createRedis(env).get(`group:${chatId}:dice:spin`);
   return v;
 }

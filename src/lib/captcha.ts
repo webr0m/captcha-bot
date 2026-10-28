@@ -32,6 +32,12 @@ export function qrTokenKey(chatId: number, userId: number, choice: string): stri
 export function intentKey(chatId: number, userId: number): string {
   return `verify_intent:${chatId}:${userId}`;
 }
+export function mathPendingKey(chatId: number, userId: number): string {
+  return `math_pending:${chatId}:${userId}`;
+}
+export function qrPendingKey(chatId: number, userId: number): string {
+  return `qr_pending:${chatId}:${userId}`;
+}
 
 // ---------- Helpers ----------
 function mdEscape(s: any): string {
@@ -115,7 +121,7 @@ export async function getRandomEmojis(env: RedisEnv): Promise<string[]> {
   return selected;
 }
 
-async function botHasPermissions(env: RedisEnv, api: TelegramApi, chatId: number): Promise<boolean> {
+export async function botHasPermissions(env: RedisEnv, api: TelegramApi, chatId: number): Promise<boolean> {
   try {
     const me = await api.getMe();
     const myId = me?.id;
@@ -131,7 +137,7 @@ async function botHasPermissions(env: RedisEnv, api: TelegramApi, chatId: number
   }
 }
 
-async function isAdmin(env: RedisEnv, api: TelegramApi, chatId: number, userId: number): Promise<boolean> {
+export async function isAdmin(env: RedisEnv, api: TelegramApi, chatId: number, userId: number): Promise<boolean> {
   try {
     const res = await api.getChatMember(chatId, userId);
     const status = res?.status;
@@ -144,7 +150,7 @@ async function isAdmin(env: RedisEnv, api: TelegramApi, chatId: number, userId: 
   }
 }
 
-async function unmuteUser(api: TelegramApi, chatId: number, userId: number): Promise<void> {
+export async function unmuteUser(api: TelegramApi, chatId: number, userId: number): Promise<void> {
   const permissions: Record<string, any> = {
     can_send_messages: true,
     can_send_media_messages: true,
@@ -166,7 +172,7 @@ async function unmuteUser(api: TelegramApi, chatId: number, userId: number): Pro
   await api.restrictChatMember(chatId, userId, permissions, 0);
 }
 
-async function muteUser(api: TelegramApi, chatId: number, userId: number, timeoutSeconds: number): Promise<void> {
+export async function muteUser(api: TelegramApi, chatId: number, userId: number, timeoutSeconds: number): Promise<void> {
   const permissions: Record<string, any> = {
     can_send_messages: false,
     can_send_media_messages: false,
@@ -243,7 +249,7 @@ export async function buildEmojiChallenge(env: RedisEnv, api: TelegramApi, chatI
   const sentAny = sent as any;
   const msgBotId = sentAny?.result?.message_id;
   await rdb.setex(`ID_msgbot:${chatId}:${userId}`, 86400, msgBotId);
-  await rdb.setex(`ID_msgsys:${chatId}:${userId}`, 86400, msgBotId - 1);
+  await rdb.setex(`ID_msgsys:${chatId}:${userId}`, 86400, String(msgBotId - 1));
   await rdb.setex(`verify:${chatId}:${userId}:msg_id`, timeout + 20, msgBotId);
   return { kind: "emoji" as const, prompt: message, keyboard: undefined };
 }
@@ -272,7 +278,7 @@ export async function buildQrChallenge(env: RedisEnv, api: TelegramApi, chatId: 
   }
   rows.push([{ text: "🔄 " + (await autoTranslate(env, lang, "Nuevo desafío")), callback_data: `qr_regen:${userId}` }]);
   const keyboard = { inline_keyboard: rows };
-  const verifyUrl = `https://verify.webrom.lat/verify?&chat_id=${chatId}&user_id=${userId}`;
+  const verifyUrl = `https://verify.webrom.cc/verify?chat_id=${chatId}&user_id=${userId}`;
   return { kind: "qr" as const, prompt: await autoTranslate(env, lang, "🔐 Verificación por QR"), keyboard, verifyUrl, answerKey: qrAnswerKey(chatId, userId) };
 }
 
@@ -304,7 +310,7 @@ export async function issueCaptcha(env: RedisEnv, api: TelegramApi, chatId: numb
     const sentAny = sent as any;
     const msgBotId = sentAny?.result?.message_id;
     await rdb.setex(`ID_msgbot:${chatIdNum}:${userIdNum}`, 86400, msgBotId);
-    await rdb.setex(`ID_msgsys:${chatIdNum}:${userIdNum}`, 86400, msgBotId - 1);
+    await rdb.setex(`ID_msgsys:${chatIdNum}:${userIdNum}`, 86400, String(msgBotId - 1));
     await rdb.setex(`verify:${chatIdNum}:${userIdNum}:msg_id`, timeout + 20, msgBotId);
     await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: Math.floor(Date.now() / 1000) + timeout + 5 });
     return;
@@ -326,14 +332,14 @@ export async function issueCaptcha(env: RedisEnv, api: TelegramApi, chatId: numb
   if (mode === "turnstile") {
     const rdbLocal = createRedis(env);
     await rdbLocal.setex(verifyKey(chatIdNum, userIdNum), timeout + 60, "pending");
-    const verifyUrl = `https://verify.webrom.lat/verify?&chat_id=${chatIdNum}&user_id=${userIdNum}`;
+    const verifyUrl = `https://verify.webrom.cc/verify?chat_id=${chatIdNum}&user_id=${userIdNum}`;
     const text = `${await autoTranslate(env, lang, "🔐 ")} ${await autoTranslate(env, lang, "verifica que no eres un bot, Presiona el botón y completa el captcha en la web.")}`;
     const keyboard = { inline_keyboard: [[{ text: await autoTranslate(env, lang, "✅ Verificar con Captcha"), url: verifyUrl }]] };
     const sent = await api.sendMessage(chatIdNum, text, { parse_mode: "HTML", reply_markup: keyboard });
     const sentAny = sent as any;
     const msgBotId = sentAny?.result?.message_id;
     await rdbLocal.setex(`ID_msgbot:${chatIdNum}:${userIdNum}`, 86400, msgBotId);
-    await rdbLocal.setex(`ID_msgsys:${chatIdNum}:${userIdNum}`, 86400, msgBotId - 1);
+    await rdbLocal.setex(`ID_msgsys:${chatIdNum}:${userIdNum}`, 86400, String(msgBotId - 1));
     const nowTurnstile = Math.floor(Date.now() / 1000);
     await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: nowTurnstile + timeout + 5 });
     return;
@@ -346,7 +352,7 @@ export async function issueCaptcha(env: RedisEnv, api: TelegramApi, chatId: numb
   const sentAny = sent as any;
   const msgBotId = sentAny?.result?.message_id;
   await rdb.setex(`ID_msgbot:${chatIdNum}:${userIdNum}`, 86400, msgBotId);
-  await rdb.setex(`ID_msgsys:${chatIdNum}:${userIdNum}`, 86400, msgBotId - 1);
+  await rdb.setex(`ID_msgsys:${chatIdNum}:${userIdNum}`, 86400, String(msgBotId - 1));
   const nowButton = Math.floor(Date.now() / 1000);
   await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: nowButton + timeout + 5 });
 }
@@ -358,6 +364,7 @@ export async function markVerified(env: RedisEnv, api: TelegramApi, chatId: numb
   const key = verifyKey(chatId, userId);
   const timeout = await getKickTimeout(env, chatId);
   await rdb.setex(key, 86400, "ok");
+  await rdb.del(intentKey(chatId, userId));
   const action2 = await getCaptchaAction2(env, chatId);
   const canUnmute = action2 !== "mute" && (await botHasPermissions(env, api, chatId));
   if (canUnmute) {

@@ -54,4 +54,4 @@ wrangler deploy                    # deploy a Cloudflare
 - Kicks por timeout: **portado** (task queue + cron).
 - Verificaciones: **portado** (callback queries, deep links, turnstile).
 - Traducción: **portado** (DeepL + Google + cache).
-- Resto de módulos (settings, nightmode, dice, broadcast, etc.): pendiente de port hacia el mismo patrón de módulos.
+- Módulos restantes (settings, nightmode, dice, broadcast, known_users, donate, lang, block_lang, etc.): **portados**.

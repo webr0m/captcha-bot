@@ -12,6 +12,10 @@
 import { TelegramApi } from "./lib/telegram";
 import { handleUpdate, BotEnv } from "./lib/dispatcher";
 import { runSweep } from "./lib/tasks";
+import { checkNightMode } from "./lib/nightmode";
+import { createRedis } from "./lib/redis";
+import { getKickTimeout, getCaptchaAction2, botHasPermissions, getGroupLang } from "./lib/captcha";
+import { autoTranslate } from "./lib/translator";
 
 export type Env = BotEnv;
 
@@ -77,16 +81,15 @@ export default {
         const api = new TelegramApi(env.BOT_TOKEN);
         const chatIdNum = Number(chatId);
         const userIdNum = Number(userId);
-        const rdb = (await import("./lib/redis")).createRedis(env);
+        const rdb = createRedis(env);
         const stateKey = `verify:${chatIdNum}:${userIdNum}`;
-        const timeout = await (await import("./lib/captcha")).getKickTimeout(env, chatIdNum);
+        const timeout = await getKickTimeout(env, chatIdNum);
         await rdb.setex(stateKey, 3600, "ok");
-        const action2 = await (await import("./lib/captcha")).getCaptchaAction2(env, chatIdNum);
-        const canUnmute = action2 !== "mute" && (await (await import("./lib/captcha")).botHasPermissions(env, api, chatIdNum));
+        const action2 = await getCaptchaAction2(env, chatIdNum);
+        const canUnmute = action2 !== "mute" && (await botHasPermissions(env, api, chatIdNum));
         if (canUnmute) {
           try {
-            const unmute = new TelegramApi(env.BOT_TOKEN);
-            await unmute.restrictChatMember(chatIdNum, userIdNum, {
+            await api.restrictChatMember(chatIdNum, userIdNum, {
               can_send_messages: true,
               can_send_media_messages: true,
               can_send_polls: true,
@@ -108,7 +111,7 @@ export default {
         }
         const msgBotId = await rdb.get(`ID_msgbot:${chatIdNum}:${userIdNum}`);
         if (msgBotId) {
-          const text = await (await import("./lib/captcha")).autoTranslate(env, await (await import("./lib/captcha")).getGroupLang(env, chatIdNum) || "es", `✅ @${(await api.getChat(userIdNum))?.result?.username ?? "usuario"} fue verificado correctamente.`);
+          const text = await autoTranslate(env, await getGroupLang(env, chatIdNum) || "es", `✅ @${(await api.getChat(userIdNum))?.result?.username ?? "usuario"} fue verificado correctamente.`);
           await api.editMessageText(chatIdNum, Number(msgBotId), text);
         }
         return new Response("✅ Verificado correctamente.", { status: 200, headers: { "Content-Type": "text/plain" } });
@@ -121,7 +124,11 @@ export default {
 
   async scheduled(event: any, env: Env, ctx: ExecutionContext): Promise<void> {
     const api = new TelegramApi(env.BOT_TOKEN);
-    await runSweep(env, api);
+    // procesa cola de tareas (kicks/limpites/lockdowns) y checks periodicos (nightmode)
+    await Promise.allSettled([
+      runSweep(env, api),
+      checkNightMode(env, api),
+    ]);
   },
 };
 

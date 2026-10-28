@@ -84,7 +84,7 @@ export class TelegramApi {
     return this.call<any>("editMessageMedia", { chat_id: chatId, message_id: messageId, media, caption, ...extra });
   }
 
-  async answerCallbackQuery(callbackId: string, text: string, showAlert: boolean): Promise<any> {
+  async answerCallbackQuery(callbackId: string, text: string, showAlert?: boolean): Promise<any> {
     return this.call<any>("answerCallbackQuery", { callback_query_id: callbackId, text, show_alert: showAlert });
   }
 

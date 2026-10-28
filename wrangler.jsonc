@@ -5,7 +5,11 @@
   "main": "src/index.ts",
   "workers_dev": true,
   "log": true,
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
   "observability": {
+    "enabled": true,
     "logs": {
       "enable": true
     }

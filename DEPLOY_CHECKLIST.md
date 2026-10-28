@@ -37,7 +37,7 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 - En `wrangler.jsonc`: `"schedule": "* * * * *"`.
 
 ## 7. Verificación Turnstile
-- Frontend (verify.webrom.lat/verify) → POST al Worker `/verify` con `cf-turnstile-response`, `chat_id`, `user_id`.
+- Frontend (verify.webrom.cc/verify) → POST al Worker `/verify` con `cf-turnstile-response`, `chat_id`, `user_id`.
 
 ## 8. Pruebas funcionales
 - [ ] Join a grupo con captcha **math** → respuesta correcta/incorrecta → kick a timeout.

@@ -6,8 +6,9 @@
  */
 
 import { createRedis, RedisEnv } from "./redis";
+import { getCaptchaAction } from "./captcha";
 
-export type TaskType = "del" | "kick" | "lockdown" | "unlock";
+export type TaskType = "del" | "kick" | "lockdown" | "unlock" | "decline" | "ban";
 
 export interface Task {
   type: TaskType;
@@ -30,7 +31,7 @@ function parseTask(member: string): Task | null {
   const param = Number(parts[2]);
   const runAt = Number(parts[3]);
   if (!Number.isFinite(chatId) || !Number.isFinite(param) || !Number.isFinite(runAt)) return null;
-  const allowed: TaskType[] = ["del", "kick", "lockdown", "unlock"];
+  const allowed: TaskType[] = ["del", "kick", "lockdown", "unlock", "decline", "ban"];
   if (!allowed.includes(type as TaskType)) return null;
   return { type: type as TaskType, chatId, param, runAt };
 }
@@ -54,13 +55,22 @@ async function executeTask(env: RedisEnv, api: any, task: Task): Promise<void> {
     const rdb = createRedis(env);
     const verified = await rdb.get(`verify:${task.chatId}:${task.param}`);
     if (verified === "ok") return; // ya fue verificado, no expulsar
-    const { getCaptchaAction } = await import("./captcha");
     const action = await getCaptchaAction(env, task.chatId);
     if (action === "ban") {
       await api.banChatMember(task.chatId, task.param, true, now + 86400);
     } else {
       await api.kickChatMember(task.chatId, task.param);
     }
+    return;
+  }
+  if (task.type === "decline") {
+    try {
+      await api.declineChatJoinRequest(task.chatId, task.param);
+    } catch { /* best effort */ }
+    return;
+  }
+  if (task.type === "ban") {
+    await api.banChatMember(task.chatId, task.param, true, now + 86400);
     return;
   }
   if (task.type === "lockdown") {

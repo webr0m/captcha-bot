@@ -30,7 +30,7 @@ async function deeplTranslate(
 ): Promise<string | null> {
   if (!authKey) return null;
   if (!text) return "";
-  const params = `text=${encodeURIComponent(text)}&target_lang=${encodeURIComponent(String(target || "EN").toUpperCase())}`;
+  let params = `text=${encodeURIComponent(text)}&target_lang=${encodeURIComponent(String(target || "EN").toUpperCase())}`;
   if (source) params = `${params}&source_lang=${encodeURIComponent(String(source).toUpperCase())}`;
 
   const res = await fetch("https://api-free.deepl.com/v2/translate", {

@@ -2,6 +2,10 @@
 
 Bot de Telegram anti-spam/captcha migrado de **Lua 5.4 + telegram-bot-lua + copas** → **Cloudflare Workers**.
 
+- **Instancia:** https://captcha-bot.ridrogo.workers.dev
+- **Webhook:** `POST /webhook` · **Health:** `GET /health` · **Turnstile:** `POST /verify`
+- **Verificación pública:** `https://verify.webrom.cc/verify`
+
 ## Arquitectura
 
 ```

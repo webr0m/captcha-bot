@@ -1,5 +1,12 @@
 # ✅ Checklist de puesta en producción — captcha-bot (Cloudflare Workers)
 
+## 0. Estado de esta instalación
+- Worker desplegado: https://captcha-bot.ridrogo.workers.dev → `/health` responde `200 OK`.
+- Webhook de Telegram configurado: `https://captcha-bot.ridrogo.workers.dev/webhook` (0 updates pendientes).
+- Secrets cargados: `BOT_TOKEN`, `TURNSTILE_SECRET`.
+- Pendiente: `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (crear Redis en Upstash).
+- Dominio público de verificación: `verify.webrom.cc`.
+
 ## 1. Setup local
 ```bash
 cd D:\Descargas\portar antiubot
@@ -34,7 +41,7 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 ```
 
 ## 6. Cron
-- En `wrangler.jsonc`: `"schedule": "* * * * *"`.
+- En `wrangler.jsonc`: `"triggers": { "crons": ["* * * * *"] }` (cada minuto).
 
 ## 7. Verificación Turnstile
 - Frontend (verify.webrom.cc/verify) → POST al Worker `/verify` con `cf-turnstile-response`, `chat_id`, `user_id`.

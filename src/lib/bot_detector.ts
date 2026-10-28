@@ -8,14 +8,21 @@ import { TelegramApi } from "./telegram";
 import { autoTranslate } from "./translator";
 import * as captcha from "./captcha";
 
-function mdEscape(s: any): string {
-  return String(s ?? "").replace(/([_*\[\]()~`>#+.!-=|{}.])/g, "\\$1");
+function escapeHtml(s: any): string {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function adminList(admins: any): any[] {
+  if (Array.isArray(admins)) return admins;
+  const result = admins?.result;
+  return Array.isArray(result) ? result : [];
 }
 
 export async function handleBotAddedAlert(env: RedisEnv, api: TelegramApi, msg: any): Promise<void> {
   const newUser = msg?.new_chat_member;
   const chatId = msg?.chat?.id;
-  const adderId = msg?.from?.id;
+  const adder = msg?.from;
+  const adderId = adder?.id;
   if (!newUser || !newUser.is_bot || !chatId || !adderId) return;
 
   let myBotId = 0;
@@ -24,25 +31,39 @@ export async function handleBotAddedAlert(env: RedisEnv, api: TelegramApi, msg: 
     myBotId = Number((me as any)?.id ?? 0);
   } catch { /* ignore */ }
 
-  const adderStatus = await api.getChatMember(chatId, adderId);
-  const adderMember = (adderStatus as any)?.result;
-  const adderStatusStr = (adderStatus as any)?.status;
-  const adderIsAdmin = adderStatusStr === "administrator" || adderStatusStr === "creator";
+  // TelegramApi ya devuelve el ChatMember directo (no el wrapper { result }).
+  let adderIsAdmin = false;
+  try {
+    const member = await api.getChatMember(chatId, adderId);
+    const status = (member as any)?.status;
+    adderIsAdmin = status === "administrator" || status === "creator";
+  } catch { /* ignore */ }
 
   const botUsername = newUser.username ? `@${newUser.username}` : String(newUser.first_name ?? "bot");
   const lang = await captcha.getGroupLang(env, chatId);
 
   if (!adderIsAdmin) {
-    const admins = await api.getChatAdministrators(chatId);
-    const list = (admins as any)?.result ?? [];
-    for (const admin of list) {
-      const aid = admin?.user?.id;
-      if (aid === undefined || aid === null) continue;
-      const granted = await createRedis(env).get(`group_access:${chatId}:${aid}`);
-      if (granted !== "true") continue;
-      const text = await autoTranslate(env, lang, `⚠️ El usuario [${String((admin?.user as any)?.first_name ?? "")}](tg://user?id=${aid}) ha agregado el bot ${botUsername} al grupo sin ser administrador.`);
-      try { await api.sendMessage(aid, mdEscape(text)); } catch { /* ignore */ }
-    }
+    // Avisar a todos los administradores del grupo usando HTML (sin Markdown).
+    try {
+      const admins = await api.getChatAdministrators(chatId);
+      const seen = new Set<number>();
+      for (const admin of adminList(admins)) {
+        const u = admin?.user;
+        const aid = Number(u?.id ?? 0);
+        if (!aid || u?.is_bot || seen.has(aid) || aid === adderId) continue;
+        seen.add(aid);
+        const adderName = escapeHtml(String(adder?.first_name ?? "Un usuario"));
+        const template = await autoTranslate(
+          env,
+          lang,
+          "⚠️ El usuario {user} ha agregado el bot {bot} al grupo sin ser administrador.",
+        );
+        const text = template
+          .replace("{user}", `<a href="tg://user?id=${adderId}">${adderName}</a>`)
+          .replace("{bot}", escapeHtml(botUsername));
+        try { await api.sendMessage(aid, text, { parse_mode: "HTML" }); } catch { /* ignore */ }
+      }
+    } catch { /* sin permisos para listar admins */ }
     return;
   }
 
@@ -60,10 +81,11 @@ export async function handleBotAddedAlert(env: RedisEnv, api: TelegramApi, msg: 
     }
     const kb = { inline_keyboard: [[{ text: await autoTranslate(env, lang, "🔐 Abrir bot en privado para configurar"), url: `https://t.me/${await captchaBotUsername(api)}?start=config_${chatId}` }]] };
     const sent = await api.sendMessage(chatId, await autoTranslate(env, lang, "Para que el bot pueda funcionar en tu grupo debes activarlo y darle administración incluyendo los permisos de borrar mensajes y restringir usuarios"), { reply_markup: kb });
-    const sentAny = sent as any;
-    const msgBotId = sentAny?.result?.message_id;
-    const rdb = createRedis(env);
-    await rdb.setex(`perms_bot:${chatId}`, 3600, String(msgBotId));
+    const msgBotId = Number((sent as any)?.message_id ?? 0);
+    if (msgBotId) {
+      const rdb = createRedis(env);
+      await rdb.setex(`perms_bot:${chatId}`, 3600, String(msgBotId));
+    }
   }
 }
 

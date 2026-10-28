@@ -18,10 +18,6 @@ function hash32(s: string): string {
   return h.toString(16).padStart(8, "0");
 }
 
-function urlEncodeUtf8(str: string): string {
-  return encodeURIComponent(str);
-}
-
 async function deeplTranslate(
   authKey: string,
   text: string,
@@ -33,33 +29,40 @@ async function deeplTranslate(
   let params = `text=${encodeURIComponent(text)}&target_lang=${encodeURIComponent(String(target || "EN").toUpperCase())}`;
   if (source) params = `${params}&source_lang=${encodeURIComponent(String(source).toUpperCase())}`;
 
-  const res = await fetch("https://api-free.deepl.com/v2/translate", {
-    method: "POST",
-    headers: {
-      Authorization: `DeepL-Auth-Key ${authKey}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: params,
-  });
-  const json = (await res.json().catch(() => null)) as any;
-  const translated = json?.translations?.[0]?.text;
-  return typeof translated === "string" ? translated : null;
+  try {
+    const res = await fetch("https://api-free.deepl.com/v2/translate", {
+      method: "POST",
+      headers: {
+        Authorization: `DeepL-Auth-Key ${authKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params,
+    });
+    const json = (await res.json().catch(() => null)) as any;
+    const translated = json?.translations?.[0]?.text;
+    return typeof translated === "string" ? translated : null;
+  } catch {
+    return null;
+  }
 }
 
 async function googleTranslate(text: string, source: string, target: string): Promise<string | null> {
   if (!text) return "";
-  const q = urlEncodeUtf8(text);
   const url =
     "https://translate.googleapis.com/translate_a/single?client=gtx&sl=" +
     encodeURIComponent(source || "auto") +
     "&tl=" +
     encodeURIComponent(String(target || "en").toLowerCase()) +
     "&dt=t&q=" +
-    encodeURIComponent(q);
-  const res = await fetch(url, { headers: { Accept: "application/json" } });
-  const json = (await res.json().catch(() => null)) as any;
-  const translated = json?.[0]?.[0]?.[0];
-  return typeof translated === "string" ? translated : null;
+    encodeURIComponent(text);
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    const json = (await res.json().catch(() => null)) as any;
+    const translated = json?.[0]?.[0]?.[0];
+    return typeof translated === "string" ? translated : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function autoTranslate(

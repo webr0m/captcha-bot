@@ -75,16 +75,11 @@ export async function handleLangCommand(env: RedisEnv, api: TelegramApi, msg: an
 }
 
 async function isAdminUser(env: RedisEnv, api: TelegramApi, chatId: number, userId: number): Promise<boolean> {
+  void env;
   try {
-    const me = await api.getMe();
-    const myId = Number((me as any)?.id);
-    const res = await api.getChatMember(chatId, userId);
-    const status = (res as any)?.status;
-    const member = (res as any)?.result;
-    if (status === "administrator" || status === "creator") return true;
-    if (status === "left" || status === "kicked") return false;
-    void myId;
-    return false;
+    const member = await api.getChatMember(chatId, userId);
+    const status = (member as any)?.status;
+    return status === "administrator" || status === "creator";
   } catch {
     return false;
   }

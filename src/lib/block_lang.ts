@@ -6,6 +6,7 @@
 import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
 import { autoTranslate } from "./translator";
+import { addTask } from "./tasks";
 import * as captcha from "./captcha";
 
 export const LANG_LABELS: Record<string, string> = {
@@ -52,23 +53,30 @@ export function detectLanguage(msg: any): string {
 }
 
 export async function blockIfUnauthorized(env: RedisEnv, api: TelegramApi, msg: any): Promise<boolean> {
+  const chat = msg?.chat;
+  const gid = Number(chat?.id);
+  const mid = Number(msg?.message_id);
+  if (!gid || chat?.type === "private" || !mid) return false;
+  const text = String(msg?.text ?? "");
+  if (text.startsWith("/")) return false; // los comandos siempre pasan
+  const userId = Number(msg?.from?.id ?? 0);
+  if (userId && (await captcha.isAdmin(env, api, gid, userId))) return false;
   const lang = detectLanguage(msg);
-  const gid = Number(msg?.chat?.id);
-  if (!gid) return false;
+  if (!lang || lang === "unknown") return false;
+
   const rdb = createRedis(env);
   const blocked: string[] = await rdb.smembers(`group:${gid}:blocked_langs`);
-  const isBlocked = blocked.includes(lang);
-  if (isBlocked) {
-    try { await api.deleteMessage(Number(msg?.chat?.id), Number(msg?.message_id)); } catch { /* ignore */ }
-    const label = LANG_LABELS[lang] ?? lang;
-    const sent = await api.sendMessage(Number(msg?.chat?.id), `⛔ Idioma bloqueado: ${label}`);
-    const sentAny = sent as any;
-    if (sentAny?.result?.message_id) {
-      try { await api.deleteMessage(Number(msg?.chat?.id), Number(sentAny.result.message_id)); } catch { /* ignore */ }
-    }
-    return true;
+  if (!blocked.includes(lang)) return false;
+
+  try { await api.deleteMessage(gid, mid); } catch { /* ignore */ }
+  const label = LANG_LABELS[lang] ?? lang;
+  const sent = await api.sendMessage(gid, `⛔ Idioma bloqueado: ${label}`);
+  const sentId = Number((sent as any)?.message_id ?? 0);
+  if (sentId) {
+    // Se deja unos segundos para que el usuario lo vea.
+    await addTask(env, { type: "del", chatId: gid, param: sentId, runAt: Math.floor(Date.now() / 1000) + 5 });
   }
-  return false;
+  return true;
 }
 
 export async function getBlockedList(env: RedisEnv, gid: number): Promise<string> {
@@ -83,7 +91,7 @@ export async function generateLanguageToggleKeyboard(env: RedisEnv, gid: number,
   const rows: Array<Array<{ text: string; callback_data: string }>> = [];
   for (let i = 0; i < SUPPORTED_LANGS.length; i += 2) {
     const row: Array<{ text: string; callback_data: string }> = [];
-    for (let j = i; j < Math.min(i + 1, SUPPORTED_LANGS.length); j++) {
+    for (let j = i; j < Math.min(i + 2, SUPPORTED_LANGS.length); j++) {
       const code = SUPPORTED_LANGS[j];
       const label = LANG_LABELS[code] ?? code;
       const status = blockedSet.has(code) ? "❌ " : "✅ ";
@@ -118,8 +126,8 @@ export async function handleLanguageCallback(env: RedisEnv, api: TelegramApi, cb
   if (m) {
     const gid = Number(m[1]);
     const langCode = m[2].toLowerCase();
-    const access = await createRedis(env).get(`group_access:${gid}:${cb.from?.id ?? 0}`);
-    if (access !== "true") {
+    const access = await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0);
+    if (!access) {
       const lang = (await createRedis(env).get(`group:${gid}:lang`)) ?? "es";
       await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ No tienes permiso para este grupo"), true).catch(() => null);
       return;

@@ -3,8 +3,9 @@
  * Portado desde `bot/modules/nightmode.lua`.
  *
  * - Auto: geolocalización (geocode.maps.co) -> amanecer/atardecer (sunrise-sunset.org) -> noche.
- * - Manual: franja horario local (HH:MM -> HH:MM) con offset de zona horaria (geonames).
- * - El check se ejecuta periódicamente (cron sweep) iterando las claves `nightmode:*`.
+ * - Manual: franja horaria local (HH:MM -> HH:MM) con offset de zona horaria (geonames).
+ * - El check se ejecuta desde el cron cada minuto; las coordenadas y los horarios
+ *   solares se cachean para no llamar a APIs externas en cada ejecución.
  */
 
 import { createRedis, RedisEnv } from "./redis";
@@ -15,6 +16,8 @@ import * as captcha from "./captcha";
 
 const GEONAMES_USER = "webrom";
 const API_KEY = "689403f89e8d1375697201xoa8000fe";
+const GEO_TTL_SEC = 30 * 24 * 3600;
+const SUN_TTL_SEC = 6 * 3600;
 
 function parseUtc(str: string): number {
   const m = String(str ?? "").match(/(\d+)-(\d+)-(\d+)T(\d+):(\d+):(\d+)/);
@@ -23,21 +26,43 @@ function parseUtc(str: string): number {
   return Math.floor(ms / 1000);
 }
 
+function validCoords(lat: any, lon: any): { lat: number; lon: number } | null {
+  const a = Number(lat);
+  const b = Number(lon);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (a < -90 || a > 90 || b < -180 || b > 180) return null;
+  return { lat: a, lon: b };
+}
+
 async function getCoordinates(env: RedisEnv, city: string): Promise<{ lat: number; lon: number } | null> {
+  const rdb = createRedis(env);
+  const cacheKey = `nightmode:geo:${String(city).trim().toLowerCase()}`;
+  const cached = await rdb.get(cacheKey);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      const coords = validCoords(parsed?.lat, parsed?.lon);
+      if (coords) return coords;
+    } catch { /* cache corrupta */ }
+  }
+
   try {
-    const encoded = encodeURIComponent(String(city ?? ""));
+    const encoded = encodeURIComponent(String(city ?? "").trim());
     const url = `https://geocode.maps.co/search?q=${encoded}&api_key=${API_KEY}`;
     const res = await fetch(url);
     const json = (await res.json().catch(() => null)) as any;
-    const results = json?.results;
-    const result = Array.isArray(results) ? results[0] : null;
-    const result_type = result?.type ?? "";
-    const allowed = ["city", "town", "municipality", "country", "administrative"];
-    const okType = allowed.includes(result_type);
-    if (result && okType) {
-      const lat = Number(result.lat);
-      const lon = Number(result.lon);
-      if (Number.isFinite(lat) && Number.isFinite(lon)) return { lat, lon };
+    // geocode.maps.co devuelve un array en la raíz; algunas variantes { results: [] }.
+    const results = Array.isArray(json) ? json : json?.results;
+    if (!Array.isArray(results)) return null;
+
+    const allowed = ["city", "town", "municipality", "village", "country", "administrative"];
+    for (const result of results) {
+      const resultType = String(result?.type ?? "");
+      if (!allowed.includes(resultType)) continue;
+      const coords = validCoords(result?.lat, result?.lon);
+      if (!coords) continue;
+      await rdb.setex(cacheKey, GEO_TTL_SEC, JSON.stringify(coords));
+      return coords;
     }
   } catch { /* ignore */ }
   return null;
@@ -48,14 +73,30 @@ async function getTimezoneOffset(lat: number, lon: number): Promise<{ offset: nu
     const url = `https://api.geonames.org/timezoneJSON?lat=${lat}&lng=${lon}&username=${GEONAMES_USER}`;
     const res = await fetch(url);
     const json = (await res.json().catch(() => null)) as any;
-    if (json?.gmtOffset && json?.time) {
+    if (json?.gmtOffset !== undefined && json?.gmtOffset !== null && json?.time) {
       return { offset: Number(json.gmtOffset), time: String(json.time) };
     }
   } catch { /* ignore */ }
   return null;
 }
 
-async function getSunTimes(lat: number, lon: number): Promise<{ sunrise: number; sunset: number } | null> {
+function utcDayKey(nowSec: number): string {
+  return new Date(nowSec * 1000).toISOString().slice(0, 10);
+}
+
+async function getSunTimes(env: RedisEnv, lat: number, lon: number, nowSec: number): Promise<{ sunrise: number; sunset: number } | null> {
+  const rdb = createRedis(env);
+  const cacheKey = `nightmode:sun:${lat.toFixed(3)}:${lon.toFixed(3)}:${utcDayKey(nowSec)}`;
+  const cached = await rdb.get(cacheKey);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      if (parsed?.sunrise && parsed?.sunset) {
+        return { sunrise: Number(parsed.sunrise), sunset: Number(parsed.sunset) };
+      }
+    } catch { /* cache corrupta */ }
+  }
+
   try {
     const url = `https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lon}&formatted=0`;
     const res = await fetch(url);
@@ -63,7 +104,10 @@ async function getSunTimes(lat: number, lon: number): Promise<{ sunrise: number;
     if (json?.status === "OK" && json?.results) {
       const sunrise = parseUtc(json.results.sunrise);
       const sunset = parseUtc(json.results.sunset);
-      if (sunrise && sunset) return { sunrise, sunset };
+      if (sunrise && sunset) {
+        await rdb.setex(cacheKey, SUN_TTL_SEC, JSON.stringify({ sunrise, sunset }));
+        return { sunrise, sunset };
+      }
     }
   } catch { /* ignore */ }
   return null;
@@ -73,15 +117,19 @@ function isNightAuto(now: number, sunrise: number, sunset: number): boolean {
   return now >= sunset || now < sunrise;
 }
 
-function timeToMinutes(str: string): number {
-  const m = String(str ?? "").match(/^(\d+):(\d+)$/);
-  if (!m) return 0;
-  return Number(m[1]) * 60 + Number(m[2]);
+function parseTime(str: string): number | null {
+  const m = String(str ?? "").match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
 }
 
 function isNightManual(nowLocalMins: number, startStr: string, stopStr: string): boolean {
-  const start = timeToMinutes(startStr);
-  const stop = timeToMinutes(stopStr);
+  const start = parseTime(startStr);
+  const stop = parseTime(stopStr);
+  if (start === null || stop === null) return false;
   if (start < stop) return nowLocalMins >= start && nowLocalMins < stop;
   return nowLocalMins >= start || nowLocalMins < stop;
 }
@@ -93,9 +141,16 @@ function configKey(chatId: number): string {
   return `nightmode:${chatId}`;
 }
 
+/** Guarda configuración sin TTL (antes expiraba a las 24h). */
+async function saveConfig(env: RedisEnv, chatId: number, cfg: Record<string, any>): Promise<void> {
+  await createRedis(env).set(configKey(chatId), JSON.stringify(cfg));
+}
+
 export async function checkNightMode(env: RedisEnv, api: TelegramApi): Promise<void> {
   const rdb = createRedis(env);
   const keys = await rdb.keys("nightmode:*");
+  const nowUtc = Math.floor(Date.now() / 1000);
+
   for (const key of keys) {
     const m = String(key).match(/^nightmode:(-?\d+)$/);
     if (!m) continue;
@@ -104,43 +159,84 @@ export async function checkNightMode(env: RedisEnv, api: TelegramApi): Promise<v
     if (!dataJson) continue;
     let cfg: any = {};
     try { cfg = JSON.parse(dataJson); } catch { continue; }
-    const nowUtc = Math.floor(Date.now() / 1000);
+
     let active = false;
     if (cfg.mode === "auto" && cfg.city) {
-      const coords = await getCoordinates(env, String(cfg.city));
+      let coords = validCoords(cfg.lat, cfg.lon);
+      if (!coords) {
+        coords = await getCoordinates(env, String(cfg.city));
+        if (coords) await saveConfig(env, chatId, { ...cfg, lat: coords.lat, lon: coords.lon });
+      }
       if (coords) {
-        const sun = await getSunTimes(coords.lat, coords.lon);
+        const sun = await getSunTimes(env, coords.lat, coords.lon, nowUtc);
         if (sun) active = isNightAuto(nowUtc, sun.sunrise, sun.sunset);
       }
-    } else if (cfg.mode === "manual" && cfg.start && cfg.stop && cfg.tz_offset) {
-      const nowLocal = new Date((nowUtc + Number(cfg.tz_offset) * 3600) * 1000);
-      const nowMins = nowLocal.getHours() * 60 + nowLocal.getMinutes();
-      active = isNightManual(nowMins, String(cfg.start), String(cfg.stop));
+    } else if (cfg.mode === "manual" && cfg.start && cfg.stop) {
+      const offset = Number(cfg.tz_offset ?? 0);
+      if (Number.isFinite(offset)) {
+        const local = new Date((nowUtc + offset * 3600) * 1000);
+        const nowMins = local.getUTCHours() * 60 + local.getUTCMinutes();
+        active = isNightManual(nowMins, String(cfg.start), String(cfg.stop));
+      }
     }
+
     const stateKey = newStateKey(chatId);
     const current = await rdb.get(stateKey);
-    if (active && current !== "1") {
-      await rdb.setex(stateKey, 86400, "1");
-      const now = Math.floor(Date.now() / 1000);
-      await addTask(env, { type: "lockdown", chatId, param: 60, runAt: now + 5 });
-    } else if (!active && current === "1") {
-      await rdb.setex(stateKey, 86400, "0");
-      const now = Math.floor(Date.now() / 1000);
-      await addTask(env, { type: "unlock", chatId, param: 0, runAt: now + 5 });
+    if (active === (current === "1")) continue;
+
+    // No tocar permisos si el bot no puede moderar el grupo.
+    if (!(await captcha.botHasPermissions(env, api, chatId))) continue;
+
+    if (active) {
+      await rdb.set(stateKey, "1");
+      // param 0 => lockdown persistente hasta que amanezca / se desactive.
+      await addTask(env, { type: "lockdown", chatId, param: 0, runAt: nowUtc + 2 });
+    } else {
+      await rdb.set(stateKey, "0");
+      await addTask(env, { type: "unlock", chatId, param: 0, runAt: nowUtc + 2 });
     }
   }
+}
+
+function buildStatusText(cfg: any, active: boolean): string {
+  const status = active ? "🟢 ACTIVO" : "⚪️ INACTIVO";
+  const offset = Number(cfg.tz_offset ?? 0);
+  const gmt = `GMT ${offset >= 0 ? "+" : ""}${offset}`;
+  let out = `🌙 Estado del modo nocturno:\nEstado: ${status}\nModo: ${cfg.mode ?? "desconocido"}`;
+  if (cfg.city) out += `\nCiudad: ${cfg.city}`;
+  if (cfg.mode === "manual" && cfg.start && cfg.stop) {
+    out += `\nHorario: ${cfg.start} ➜ ${cfg.stop} (${gmt})`;
+  } else if (cfg.mode === "auto") {
+    out += "\nHorario: Amanecer / Anochecer real";
+  }
+  if (cfg.time) out += `\nHora de configuración: ${String(cfg.time)} (${gmt})`;
+  return out;
+}
+
+function statusKeyboard(gid: number): any {
+  return {
+    inline_keyboard: [
+      [{ text: "🔄 Cambiar modo", callback_data: `nightmode_switch:${gid}` }],
+      [{ text: "⬅️ Volver", callback_data: `settings:${gid}` }],
+    ],
+  };
 }
 
 export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, msg: any): Promise<void> {
   const rdb = createRedis(env);
   const pendingKey = `nightmode_pending:${msg.from?.id ?? 0}`;
-  const pending = await rdb.get(pendingKey);
+  const pending = msg?.chat?.type === "private" ? await rdb.get(pendingKey) : null;
 
   if (pending) {
     let cfg: any = {};
     try { cfg = JSON.parse(pending); } catch { cfg = {}; }
     if (!cfg || !cfg.mode || cfg.chat_id === undefined || cfg.chat_id === null) return;
     const chatId = Number(cfg.chat_id);
+    if (!(await captcha.isAdmin(env, api, chatId, msg.from?.id ?? 0))) {
+      await rdb.del(pendingKey);
+      await api.sendMessage(chatId, "🚫 Solo administradores pueden cambiar esto.");
+      return;
+    }
 
     if (cfg.mode === "auto") {
       const city = String(msg.text ?? "").trim();
@@ -150,17 +246,21 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
         return;
       }
       const tz = await getTimezoneOffset(coords.lat, coords.lon);
-      await rdb.setex(configKey(chatId), 86400, JSON.stringify({ mode: "auto", city, tz_offset: tz?.offset, time: tz?.time }));
-      await rdb.setex(newStateKey(chatId), 86400, "0");
+      await saveConfig(env, chatId, {
+        mode: "auto", city, lat: coords.lat, lon: coords.lon,
+        tz_offset: tz?.offset, time: tz?.time,
+      });
+      await rdb.set(newStateKey(chatId), "0");
       await rdb.del(pendingKey);
       await checkNightMode(env, api);
-      await api.sendMessage(chatId, `✅ Modo automático activado para *${city}*.`);
+      await api.sendMessage(chatId, `✅ Modo nocturno automático activado para ${city}.`);
       return;
     }
+
     if (cfg.mode === "manual") {
       const m = String(msg.text ?? "").match(/^(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})\s+(.+)$/);
-      if (!m) {
-        await api.sendMessage(chatId, "❌ Formato incorrecto. Intenta con:\n`22:00 06:00 Ciudad`");
+      if (!m || parseTime(m[1]) === null || parseTime(m[2]) === null) {
+        await api.sendMessage(chatId, "❌ Formato incorrecto. Intenta con:\n22:00 06:00 Ciudad");
         return;
       }
       const start = m[1];
@@ -173,40 +273,38 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
       }
       const tz = await getTimezoneOffset(coords.lat, coords.lon);
       if (!tz) {
-        await api.sendMessage(chatId, "⚠️ No se pudo obtener zona horaria.");
+        await api.sendMessage(chatId, "⚠️ No se pudo obtener la zona horaria.");
         return;
       }
-      await rdb.setex(configKey(chatId), 86400, JSON.stringify({ mode: "manual", city, tz_offset: tz.offset, start, stop, time: tz.time }));
-      await rdb.setex(newStateKey(chatId), 86400, "0");
+      await saveConfig(env, chatId, {
+        mode: "manual", city, lat: coords.lat, lon: coords.lon,
+        tz_offset: tz.offset, start, stop, time: tz.time,
+      });
+      await rdb.set(newStateKey(chatId), "0");
       await rdb.del(pendingKey);
       await checkNightMode(env, api);
-      await api.sendMessage(chatId, `✅ Modo manual activado:\nDesde *${start}* hasta *${stop}* en *${city}* (GMT ${tz.offset >= 0 ? "+" : ""}${tz.offset})\nHora de configuración: *${tz.time}* (GMT ${tz.offset >= 0 ? "+" : ""}${tz.offset})`);
+      await api.sendMessage(chatId, `✅ Modo nocturno manual activado:\nDesde ${start} hasta ${stop} en ${city} (GMT ${tz.offset >= 0 ? "+" : ""}${tz.offset})`);
       return;
     }
     return;
   }
 
-  const chatId = msg.chat?.id;
-  if (!chatId) return;
-  if (!msg.text) return;
-
-  const admin = await captcha.isAdmin(env, api, chatId, msg.from?.id ?? 0);
-  if (!admin) {
+  const chatId = Number(msg.chat?.id ?? 0);
+  if (!chatId || !msg.text) return;
+  if (!(await captcha.isAdmin(env, api, chatId, msg.from?.id ?? 0))) {
     await api.sendMessage(chatId, "🚫 Solo administradores pueden cambiar esto.");
     return;
   }
 
   const text = String(msg.text ?? "");
-  const cmdMatch = text.match(/^\/nightmode\s*(\S+)\s*(.*)$/);
-  const cmd = cmdMatch?.[1];
+  const cmdMatch = text.match(/^\/nightmode(?:@\S+)?\s*(\S+)\s*([\s\S]*)$/);
+  const cmd = cmdMatch?.[1]?.toLowerCase();
   const rest = cmdMatch?.[2] ?? "";
 
   if (!cmd) {
-    await api.sendMessage(chatId, "🌙 Usa:\n/nightmode auto <ciudad>\n/nightmode manual <hora_on> <hora_off> <ciudad>\nEjemplo:\n/nightmode auto Lima\n/nightmode manual 22:00 06:00 Madrid");
+    await api.sendMessage(chatId, "🌙 Usa:\n/nightmode auto <ciudad>\n/nightmode manual <hora_on> <hora_off> <ciudad>\n/nightmode status\nEjemplo:\n/nightmode auto Lima\n/nightmode manual 22:00 06:00 Madrid");
     return;
   }
-
-  const config = { mode: cmd };
 
   if (cmd === "auto") {
     const city = rest.trim();
@@ -220,13 +318,19 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
       return;
     }
     const tz = await getTimezoneOffset(coords.lat, coords.lon);
-    await rdb.setex(configKey(chatId), 86400, JSON.stringify({ mode: "auto", city, tz_offset: tz?.offset, time: tz?.time }));
-    await rdb.setex(newStateKey(chatId), 86400, "0");
+    await saveConfig(env, chatId, {
+      mode: "auto", city, lat: coords.lat, lon: coords.lon,
+      tz_offset: tz?.offset, time: tz?.time,
+    });
+    await rdb.set(newStateKey(chatId), "0");
     await checkNightMode(env, api);
-    await api.sendMessage(chatId, `✅ Modo nocturno automático activado para *${city}*.`);
-  } else if (cmd === "manual") {
+    await api.sendMessage(chatId, `✅ Modo nocturno automático activado para ${city}.`);
+    return;
+  }
+
+  if (cmd === "manual") {
     const m = rest.match(/^(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})\s+(.+)$/);
-    if (!m) {
+    if (!m || parseTime(m[1]) === null || parseTime(m[2]) === null) {
       await api.sendMessage(chatId, "🕒 Usa: /nightmode manual <hora_on> <hora_off> <ciudad>\nEjemplo: /nightmode manual 22:00 06:00 Madrid");
       return;
     }
@@ -240,14 +344,20 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
     }
     const tz = await getTimezoneOffset(coords.lat, coords.lon);
     if (!tz) {
-      await api.sendMessage(chatId, "⚠️ No se pudo obtener zona horaria de esa ciudad.");
+      await api.sendMessage(chatId, "⚠️ No se pudo obtener la zona horaria de esa ciudad.");
       return;
     }
-    await rdb.setex(configKey(chatId), 86400, JSON.stringify({ mode: "manual", city, tz_offset: tz.offset, start, stop, time: tz.time }));
-    await rdb.setex(newStateKey(chatId), 86400, "0");
+    await saveConfig(env, chatId, {
+      mode: "manual", city, lat: coords.lat, lon: coords.lon,
+      tz_offset: tz.offset, start, stop, time: tz.time,
+    });
+    await rdb.set(newStateKey(chatId), "0");
     await checkNightMode(env, api);
-    await api.sendMessage(chatId, `✅ Modo nocturno manual activado:\nDesde *${start}* hasta *${stop}* en *${city}* (GMT ${tz.offset >= 0 ? "+" : ""}${tz.offset})\nHora de configuración: *${tz.time}* (GMT ${tz.offset >= 0 ? "+" : ""}${tz.offset})`);
-  } else if (cmd === "status") {
+    await api.sendMessage(chatId, `✅ Modo nocturno manual activado:\nDesde ${start} hasta ${stop} en ${city} (GMT ${tz.offset >= 0 ? "+" : ""}${tz.offset})`);
+    return;
+  }
+
+  if (cmd === "status") {
     const dataJson = await rdb.get(configKey(chatId));
     if (!dataJson) {
       await api.sendMessage(chatId, "ℹ️ El modo nocturno no está configurado en este grupo.");
@@ -256,35 +366,21 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
     let cfg: any = {};
     try { cfg = JSON.parse(dataJson); } catch { cfg = {}; }
     const active = (await rdb.get(newStateKey(chatId))) === "1";
-    const status = active ? "🟢 *ACTIVO*" : "⚪️ *INACTIVO*";
-    let textOut = `🌙 *Estado del modo nocturno:*\nEstado: ${status}\nModo: \`${cfg.mode ?? "desconocido"}\``;
-    if (cfg.city) textOut += `\nCiudad: \`${cfg.city}\``;
-    if (cfg.mode === "manual" && cfg.start && cfg.stop) {
-      textOut += `\nHorario: \`${cfg.start}\` ➜ \`${cfg.stop}\` (GMT ${Number(cfg.tz_offset || 0) >= 0 ? "+" : ""}${Number(cfg.tz_offset || 0)})\nHora de configuración: \`${String(cfg.time ?? "")}\` (GMT ${Number(cfg.tz_offset || 0) >= 0 ? "+" : ""}${Number(cfg.tz_offset || 0)})`;
-    } else if (cfg.mode === "auto" && cfg.time) {
-      textOut += `\nHorario: \`Amanecer / Anochecer real\`\nHora de configuración: \`${String(cfg.time)}\` GMT ${Number(cfg.tz_offset || 0)}`;
-    }
-    await api.sendMessage(chatId, textOut);
+    await api.sendMessage(chatId, buildStatusText(cfg, active), { reply_markup: statusKeyboard(chatId) });
     return;
   }
 
-  await rdb.setex(configKey(chatId), 86400, JSON.stringify(config));
-  await rdb.setex(newStateKey(chatId), 86400, "0");
+  await api.sendMessage(chatId, "❌ Opción no válida. Usa /nightmode auto, manual o status.");
 }
 
 export async function handleNightmodeCallback(env: RedisEnv, api: TelegramApi, cb: any): Promise<void> {
-  const data = cb?.data;
-  if (!data) return;
+  const data = String(cb?.data ?? "");
   const rdb = createRedis(env);
 
-  let m: RegExpMatchArray | null;
-
-  // nightmode_status:<gid> -> mostrar estado
-  m = data.match(/^nightmode_status:(-?\d+)$/);
+  let m = data.match(/^nightmode_status:(-?\d+)$/);
   if (m) {
     const gid = Number(m[1]);
-    const admin = await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0);
-    if (!admin) {
+    if (!(await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0))) {
       await api.answerCallbackQuery(cb.id, "🚫 Solo administradores pueden cambiar esto.", true).catch(() => null);
       return;
     }
@@ -296,66 +392,15 @@ export async function handleNightmodeCallback(env: RedisEnv, api: TelegramApi, c
     let cfg: any = {};
     try { cfg = JSON.parse(dataJson); } catch { cfg = {}; }
     const active = (await rdb.get(newStateKey(gid))) === "1";
-    const statusText = active ? "🟢 *ACTIVO*" : "⚪️ *INACTIVO*";
-    let textOut = `🌙 *Modo nocturno:*\nEstado: ${statusText}\nModo: \`${cfg.mode ?? "desconocido"}\``;
-    if (cfg.city) textOut += `\nCiudad: \`${cfg.city}\``;
-    if (cfg.mode === "manual" && cfg.start && cfg.stop) {
-      textOut += `\nHorario: \`${cfg.start}\` ➜ \`${cfg.stop}\` (GMT ${Number(cfg.tz_offset || 0) >= 0 ? "+" : ""}${Number(cfg.tz_offset || 0)})\nHora de configuración: \`${String(cfg.time ?? "")}\` (GMT ${Number(cfg.tz_offset || 0) >= 0 ? "+" : ""}${Number(cfg.tz_offset || 0)})`;
-    } else if (cfg.mode === "auto" && cfg.time) {
-      textOut += `\nHorario: \`Amanecer / Anochecer real\`\nHora de configuración: \`${String(cfg.time)}\` GMT ${Number(cfg.tz_offset || 0)}`;
-    }
     await api.answerCallbackQuery(cb.id, "🌙 Modo Nocturno.").catch(() => null);
-    await api.editMessageText(cb.message?.chat?.id ?? gid, cb.message?.message_id ?? 0, textOut, { parse_mode: "Markdown" } as any).catch(() => null);
+    await api.editMessageText(cb.message?.chat?.id ?? gid, cb.message?.message_id ?? 0, buildStatusText(cfg, active), { reply_markup: statusKeyboard(gid) } as any).catch(() => null);
     return;
   }
 
-  // nightmode_st<status>:<gid>
-  m = data.match(/^nightmode_st(.+):(-?\d+)$/);
+  m = data.match(/^nightmode_switch:(-?\d+)$/);
   if (m) {
-    const status = m[1];
-    const gid = Number(m[2]);
-    const admin = await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0);
-    if (!admin) {
-      await api.answerCallbackQuery(cb.id, "🚫 Solo administradores pueden cambiar esto.", true).catch(() => null);
-      return;
-    }
-    const dataJson = await rdb.get(configKey(gid));
-    if (!dataJson) {
-      await api.answerCallbackQuery(cb.id, "Modo nocturno no configurado.", true).catch(() => null);
-      return;
-    }
-    let cfg: any = {};
-    try { cfg = JSON.parse(dataJson); } catch { cfg = {}; }
-    const active = (await rdb.get(newStateKey(gid))) === "1";
-    const statusText = active ? "🟢 *ACTIVO*" : "⚪️ *INACTIVO*";
-    let textOut = `🌙 *Modo nocturno:*\nEstado: ${statusText}\nModo: \`${cfg.mode ?? "desconocido"}\``;
-    if (cfg.city) textOut += `\nCiudad: \`${cfg.city}\``;
-    if (cfg.mode === "manual" && cfg.start && cfg.stop) {
-      textOut += `\nHorario: \`${cfg.start}\` ➜ \`${cfg.stop}\` (GMT ${Number(cfg.tz_offset || 0) >= 0 ? "+" : ""}${Number(cfg.tz_offset || 0)})\nHora de configuración: \`${String(cfg.time ?? "")}\` (GMT ${Number(cfg.tz_offset || 0) >= 0 ? "+" : ""}${Number(cfg.tz_offset || 0)})`;
-    } else if (cfg.mode === "auto" && cfg.time) {
-      textOut += `\nHorario: \`Amanecer / Anochecer real\`\nHora de configuración: \`${String(cfg.time)}\` GMT ${Number(cfg.tz_offset || 0)}`;
-    }
-    await api.answerCallbackQuery(cb.id, "🌙 Modo Nocturno.").catch(() => null);
-    const keyboard = {
-      inline_keyboard: [
-        [{ text: "🔄 Cambiar modo", callback_data: `nightmode_switch:${gid}` }],
-        [{ text: "⬅️ Volver", callback_data: `settings:${gid}` }],
-      ],
-    };
-    if (cb.inline_message_id) {
-      await api.editMessageText(cb.message?.chat?.id ?? gid, cb.message?.message_id ?? 0, textOut, { parse_mode: "Markdown", inline_message_id: cb.inline_message_id } as any).catch(() => null);
-    } else {
-      await api.editMessageText(cb.message?.chat?.id ?? gid, cb.message?.message_id ?? 0, textOut, { parse_mode: "Markdown", reply_markup: keyboard } as any).catch(() => null);
-    }
-    return;
-  }
-
-  // nightmode_switch:<gid>
-  m = data.match(/^nightmode_sw(.+):(-?\d+)$/);
-  if (m) {
-    const gid = Number(m[2]);
-    const admin = await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0);
-    if (!admin) {
+    const gid = Number(m[1]);
+    if (!(await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0))) {
       await api.answerCallbackQuery(cb.id, "🚫 Solo administradores pueden cambiar esto.", true).catch(() => null);
       return;
     }
@@ -369,47 +414,33 @@ export async function handleNightmodeCallback(env: RedisEnv, api: TelegramApi, c
       ],
     };
     await api.answerCallbackQuery(cb.id, "🌙 Configura el Modo Nocturno.").catch(() => null);
-    if (cb.inline_message_id) {
-      await api.editMessageText(cb.message?.chat?.id ?? gid, cb.message?.message_id ?? 0, "Selecciona el nuevo modo:", { parse_mode: "Markdown", inline_message_id: cb.inline_message_id } as any).catch(() => null);
-    } else {
-      await api.editMessageText(cb.message?.chat?.id ?? gid, cb.message?.message_id ?? 0, "Selecciona el nuevo modo:", { parse_mode: "Markdown", reply_markup: keyboard } as any).catch(() => null);
-    }
+    await api.editMessageText(cb.message?.chat?.id ?? gid, cb.message?.message_id ?? 0, "Selecciona el nuevo modo:", { reply_markup: keyboard } as any).catch(() => null);
     return;
   }
 
-  // nightmode_set_auto:<gid>
-  m = data.match(/^nightmode_set_au(.+):(-?\d+)$/);
+  m = data.match(/^nightmode_set_auto:(-?\d+)$/);
   if (m) {
-    const gid = Number(m[2]);
-    const admin = await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0);
-    if (!admin) {
+    const gid = Number(m[1]);
+    if (!(await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0))) {
       await api.answerCallbackQuery(cb.id, "🚫 Solo administradores pueden cambiar esto.", true).catch(() => null);
       return;
     }
-    const auto = m[1];
-    if (auto !== "to") {
-      await api.answerCallbackQuery(cb.id, "🌙 Configura el Modo Nocturno Automático.").catch(() => null);
-      await rdb.setex(`nightmode_pending:${cb.from?.id ?? 0}`, 86400, JSON.stringify({ mode: "auto", chat_id: gid }));
-      await api.sendMessage(cb.from?.id ?? 0, "🌆 Escribe el nombre de la ciudad para activar modo automático.\nEjemplo: `Lima`");
-    }
+    await api.answerCallbackQuery(cb.id, "🌙 Configura el Modo Nocturno Automático.").catch(() => null);
+    await rdb.setex(`nightmode_pending:${cb.from?.id ?? 0}`, 86400, JSON.stringify({ mode: "auto", chat_id: gid }));
+    await api.sendMessage(cb.from?.id ?? 0, "🌆 Escribe el nombre de la ciudad para activar modo automático.\nEjemplo: Lima");
     return;
   }
 
-  // nightmode_set_manual:<gid>
-  m = data.match(/^nightmode_set_ma(.+):(-?\d+)$/);
+  m = data.match(/^nightmode_set_manual:(-?\d+)$/);
   if (m) {
-    const gid = Number(m[2]);
-    const admin = await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0);
-    if (!admin) {
+    const gid = Number(m[1]);
+    if (!(await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0))) {
       await api.answerCallbackQuery(cb.id, "🚫 Solo administradores pueden cambiar esto.", true).catch(() => null);
       return;
     }
-    const manual = m[1];
-    if (manual !== "nu") {
-      await api.answerCallbackQuery(cb.id, "🌙 Configura el Modo Nocturno Manual.").catch(() => null);
-      await rdb.setex(`nightmode_pending:${cb.from?.id ?? 0}`, 86400, JSON.stringify({ mode: "manual", chat_id: gid }));
-      await api.sendMessage(cb.from?.id ?? 0, "🕒 Envía la configuración manual en el siguiente formato:\n\n`22:00 06:00 Ciudad`\n\nEjemplo:\n`21:30 07:00 Buenos Aires`");
-    }
+    await api.answerCallbackQuery(cb.id, "🌙 Configura el Modo Nocturno Manual.").catch(() => null);
+    await rdb.setex(`nightmode_pending:${cb.from?.id ?? 0}`, 86400, JSON.stringify({ mode: "manual", chat_id: gid }));
+    await api.sendMessage(cb.from?.id ?? 0, "🕒 Envía la configuración manual en el siguiente formato:\n\n22:00 06:00 Ciudad\n\nEjemplo:\n21:30 07:00 Buenos Aires");
     return;
   }
 }

@@ -25,23 +25,23 @@ function randToken(n: number): string {
   return out.join("");
 }
 
-async function getDiceSticker(env: any, chatId: number, face: string): Promise<string | null> {
-  const manual = FILE_IDS[face];
-  if (manual) return manual;
+async function getDiceSticker(env: RedisEnv, chatId: number, face: string): Promise<string | null> {
+  // Permite sobreescribir el sticker desde Redis; si no, usa el file_id por defecto.
   const v = await createRedis(env).get(`group:${chatId}:dice:${face}`);
-  return v;
+  if (v) return v;
+  return FILE_IDS[face] ?? null;
 }
 
-async function getDiceSpin(env: any, chatId: number): Promise<string | null> {
-  const manual = FILE_ID_DICE_SPIN;
-  if (manual) return manual;
+async function getDiceSpin(env: RedisEnv, chatId: number): Promise<string | null> {
   const v = await createRedis(env).get(`group:${chatId}:dice:spin`);
-  return v;
+  if (v) return v;
+  return FILE_ID_DICE_SPIN;
 }
 
-export async function issueDice(env: any, api: TelegramApi, chatId: number, userId: number, msg: any): Promise<void> {
+export async function issueDice(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, msg: any): Promise<void> {
   const timeout = await captcha.getKickTimeout(env, chatId);
   const rdb = createRedis(env);
+  const now = Math.floor(Date.now() / 1000);
   const target = Math.floor(Math.random() * 6) + 1;
   await rdb.setex(`dice_target:${chatId}:${userId}`, timeout, String(target));
 
@@ -60,63 +60,76 @@ export async function issueDice(env: any, api: TelegramApi, chatId: number, user
     await api.sendMessage(chatId, "⚠️ Falta configurar el sticker 'spin' (manual o Redis)");
     return;
   }
-  const sent = await api.sendMessage(chatId, "*Elige un dado:*", { parse_mode: "Markdown", reply_markup: keyboard });
-  const sentAny = sent as any;
-  const msgBotId = sentAny?.result?.message_id;
-  const spinRes = await api.sendSticker(chatId, spinId);
-  const spinAny = spinRes as any;
-  const msgSpinId = spinAny?.result?.message_id;
 
-  await rdb.setex(`ID_msgbot:${chatId}:${userId}`, timeout + 60, msgBotId);
-  await rdb.setex(`ID_msgsys:${chatId}:${userId}`, timeout + 60, msg?.message_id);
-  await rdb.setex(`ID_msgspin:${chatId}:${userId}`, timeout + 60, msgSpinId);
-  await rdb.setex(`verify:${chatId}:${userId}:status`, timeout + 60, "pending");
-  await addTask(env, { type: "kick", chatId, param: userId, runAt: Math.floor(Date.now() / 1000) + timeout + 5 });
+  // Estado común de verificación: el cron solo expulsa si sigue "pending".
+  await rdb.setex(captcha.verifyKey(chatId, userId), timeout + 60, "pending");
+  await rdb.setex(captcha.verifyDeadlineKey(chatId, userId), timeout + 120, String(now + timeout + 5));
+  await addTask(env, { type: "kick", chatId, param: userId, runAt: now + timeout + 5 });
+
+  const sent = await api.sendMessage(chatId, "*Elige un dado:*", { parse_mode: "Markdown", reply_markup: keyboard });
+  const msgBotId = Number((sent as any)?.message_id ?? 0);
+  const spinRes = await api.sendSticker(chatId, spinId);
+  const msgSpinId = Number((spinRes as any)?.message_id ?? 0);
+
+  if (msgBotId) await rdb.setex(`ID_msgbot:${chatId}:${userId}`, timeout + 60, String(msgBotId));
+  if (msg?.message_id) await rdb.setex(`ID_msgsys:${chatId}:${userId}`, timeout + 60, String(msg.message_id));
+  if (msgSpinId) await rdb.setex(`ID_msgspin:${chatId}:${userId}`, timeout + 60, String(msgSpinId));
 }
 
-export async function handleDiceCallback(env: any, api: TelegramApi, cb: any): Promise<void> {
+export async function handleDiceCallback(env: RedisEnv, api: TelegramApi, cb: any): Promise<void> {
   const chatId = cb?.message?.chat?.id;
   if (!chatId) return;
   const m = cb?.data?.match(/^dice_answer:(-?\d+):(.+)$/);
   if (!m) return;
   const uid = Number(m[1]);
   const token = m[2];
-  const fromId = cb?.from?.id;
+  const fromId = Number(cb?.from?.id ?? 0);
   if (fromId !== uid) {
     await api.answerCallbackQuery(cb.id, "❌ No es tu desafío.", true).catch(() => null);
     return;
   }
+
   const rdb = createRedis(env);
+  const state = await rdb.get(captcha.verifyKey(chatId, uid));
+  if (state !== "pending") {
+    await api.answerCallbackQuery(cb.id, "⏳ Este desafío ya no está disponible.", true).catch(() => null);
+    return;
+  }
+
   const chosen = await rdb.get(`dice_token:${chatId}:${uid}:${token}`);
   const target = await rdb.get(`dice_target:${chatId}:${uid}`);
   if (!chosen || !target) {
     await api.answerCallbackQuery(cb.id, "⏳ Expirado.", true).catch(() => null);
     return;
   }
-  const msgBotId = await rdb.get(`ID_msgbot:${chatId}:${uid}`);
-  const msgSpinId = await rdb.get(`ID_msgspin:${chatId}:${uid}`);
-  if (msgBotId) { try { await api.deleteMessage(chatId, Number(msgBotId)); } catch { /* ignore */ } }
-  if (msgSpinId) { try { await api.deleteMessage(chatId, Number(msgSpinId)); } catch { /* ignore */ } }
+
+  const msgBotId = Number((await rdb.get(`ID_msgbot:${chatId}:${uid}`)) ?? 0);
+  const msgSpinId = Number((await rdb.get(`ID_msgspin:${chatId}:${uid}`)) ?? 0);
+  if (msgBotId) { try { await api.deleteMessage(chatId, msgBotId); } catch { /* ignore */ } }
+  if (msgSpinId) { try { await api.deleteMessage(chatId, msgSpinId); } catch { /* ignore */ } }
 
   if (String(chosen) === String(target)) {
     const face = await getDiceSticker(env, chatId, String(chosen));
     if (face) { try { await api.sendSticker(chatId, face); } catch { /* ignore */ } }
-    const action2 = await captcha.getCaptchaAction2(env, chatId);
-    const canUnmute = action2 !== "mute" && (await captcha.botHasPermissions(env, api, chatId));
-    if (canUnmute) {
-      try { await captcha.unmuteUser(api, chatId, uid); } catch { /* ignore */ }
-    }
-    await createRedis(env).setex(`verify:${chatId}:${uid}`, 86400, "ok");
-    await api.answerCallbackQuery(cb.id, "✅ Correcto", true);
+    // markVerified desmutea, limpia el estado y registra la verificación.
+    await captcha.markVerified(env, api, chatId, uid, cb?.from?.username);
+    await api.answerCallbackQuery(cb.id, "✅ Correcto", true).catch(() => null);
   } else {
     const banFace = await getDiceSticker(env, chatId, "ban");
     if (banFace) { try { await api.sendSticker(chatId, banFace); } catch { /* ignore */ } }
+
     const action = await captcha.getCaptchaAction(env, chatId);
-    if (action === "ban") {
-      await api.banChatMember(chatId, uid, true, Math.floor(Date.now() / 1000) + 86400);
-    } else {
-      await api.kickChatMember(chatId, uid);
-    }
-    await api.answerCallbackQuery(cb.id, "❌ Incorrecto", true);
+    try {
+      if (action === "ban") {
+        // until_date = 0 -> ban permanente.
+        await api.banChatMember(chatId, uid, 0);
+      } else {
+        await api.kickChatMember(chatId, uid);
+      }
+    } catch { /* el usuario pudo salir */ }
+
+    await captcha.clearChallengeState(env, chatId, uid);
+    await rdb.del(`ID_msgbot:${chatId}:${uid}`, `ID_msgsys:${chatId}:${uid}`, `ID_msgspin:${chatId}:${uid}`);
+    await api.answerCallbackQuery(cb.id, "❌ Incorrecto", true).catch(() => null);
   }
 }

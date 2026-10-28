@@ -14,13 +14,13 @@ Bot de Telegram anti-spam/captcha migrado de **Lua 5.4 + telegram-bot-lua + copa
 Telegram ──webhook──▶ Cloudflare Worker (fetch handler)
                           │
                           ├─ POST /webhook   → dispatcher de updates (message / callback_query / chat_join_request)
-                          │                        └─▶ motor de captchas (math / emoji / qr / turnstile / button)
+                          │                        └─▶ motor de captchas (math / emoji / qr / image / turnstile / button / dice)
                           │                                   └─▶ Telegram API (wrapper fetch) ─▶ kick/ban/edit/delete
                           │                                   └─▶ Upstash Redis (API REST)  ← estado (verify:*, math_*, qr_*, group:*, ...)
                           │
                           └─ POST /verify   → Turnstile siteverify → set estado "ok" → editar mensaje
                           │
-                          └─ cron "* * * * *" → proceso cola de tareas (tasks set) → kicks / limpiezas / lockdowns
+                          └─ cron "* * * * *" → proceso cola de tareas (tasks set) → kicks / bans / limpiezas / lockdowns
 ```
 
 ## Decisiones de port
@@ -30,7 +30,9 @@ Telegram ──webhook──▶ Cloudflare Worker (fetch handler)
 | Librería Telegram | **Wrapper propio mínimo** (`src/lib/telegram.ts`) sobre REST API de Telegram con `fetch` (port directo de los métodos usados por `telegram-bot-lua`) |
 | Base de datos | **Upstash Redis** (API REST) — compatible con todos los comandos usados por el bot |
 | Timers / expiraciones | **Cola de tareas** en Redis Set (`tasks`) + **cron trigger** (reemplazo de `copas.sleep`) |
-| captcha por imagen (ImageMagick) | **No soportado en Workers** → se migra a math/QR/turnstile/emoji (todos ya portados) |
+| Captcha por imagen (ImageMagick) | **Modo `image`** implementado sin ImageMagick: imagen generada por `placehold.co` con el código a escribir |
+| Modo silencioso | **`silent_mode`**: el enlace de Turnstile se envía por privado; si el usuario no inició el bot, se deja un aviso mínimo en el grupo |
+| Limpieza periódica | `cleaner` elimina tareas corruptas/antiguas y claves `known_users:tmp:*`; cron con guard de 1 hora y comando manual `/cleaner` |
 | Webhook | Sí (recomendado por Telegram) → Worker expone `/webhook` |
 
 ## Puesta en marcha (pasos manuales)
@@ -53,11 +55,25 @@ wrangler deploy                    # deploy a Cloudflare
 2. `wrangler deploy`.
 3. `curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" -d "url=https://<worker>.workers.dev/webhook"`.
 4. La página Turnstile se sirve con `GET /verify`; la ruta pública se define en `wrangler.jsonc` (`verify.<dominio>/*`) y el dominio debe estar autorizado en el widget de Turnstile.
+5. (Opcional) `WEBHOOK_SECRET` para validar `X-Telegram-Bot-Api-Secret-Token` y `USERS_LOG_CHAT_ID` para el log de actividad.
+
+## Modos de captcha
+
+| Modo | Funcionamiento |
+|---|---|
+| `button` | Botón «✅ Verificarme» (`simple:<uid>`) en el grupo |
+| `math` | Operación con botones numéricos, 2 intentos y regeneración (límite 3) |
+| `emoji` | El usuario escribe exactamente la secuencia de emojis |
+| `qr` | QR + botones con tokens |
+| `image` | Imagen con código de 5 caracteres (`placehold.co`) |
+| `turnstile` | Enlace a `verify.webrom.cc`; validación real con Turnstile |
+| `dice` | Reto con stickers de dados |
 
 ## Estado
 
-- Motor de captchas: **portado** (math / emoji / qr / turnstile / button).
-- Kicks por timeout: **portado** (task queue + cron).
-- Verificaciones: **portado** (callback queries, deep links, turnstile).
-- Traducción: **portado** (DeepL + Google + cache).
-- Módulos restantes (settings, nightmode, dice, broadcast, known_users, donate, lang, block_lang, etc.): **portados**.
+- Motor de captchas: **portado y probado** (math / emoji / qr / image / turnstile / button / dice).
+- Flujo real de captcha **button** probado en grupo: `pending` → callback → `verify = ok` → mensaje editado.
+- Flujo real **Turnstile** probado: `GET /verify` 200, token inválido 403, verificación correcta 200.
+- Kicks/bans por timeout: **portados** (task queue + cron; ban permanente con `until_date=0`).
+- Modo nocturno, lockdown, cleaner, broadcast, settings, known_users, donate, lang, block_lang, reportes: **portados**.
+- Documentación de despliegue y pruebas: [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md).

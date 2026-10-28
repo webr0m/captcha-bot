@@ -69,7 +69,8 @@ interface SettingsState {
 
 async function getSettingsState(env: EnvWithBot, gid: number): Promise<SettingsState> {
   const rdb = createRedis(env);
-  const timeout = Number((await rdb.get(`group:${gid}:kick_timeout`)) ?? 60);
+  const rawTimeout = Number((await rdb.get(`group:${gid}:kick_timeout`)) ?? 60);
+  const timeout = Number.isFinite(rawTimeout) ? Math.max(5, Math.min(rawTimeout, 3600)) : 60;
   const captcha = (await rdb.get(`group:${gid}:captcha_enabled`)) === "true";
   const mode = (await rdb.get(`group:${gid}:captcha_mode`)) ?? "button";
   const action = (await rdb.get(`group:${gid}:captcha_action`)) ?? "kick";
@@ -247,7 +248,10 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
       const n = Number(owner);
       if (Number.isFinite(n) && owner !== "all" && !key.startsWith("group_known:tmp:")) groups.push(n);
     }
-    const allowed = groups.filter(async (gid) => (await rdb.get(`group_access:${gid}:${userId}`)) === "true");
+    const allowed: number[] = [];
+    for (const gid of groups) {
+      if (await hasGroupAccess(env, api, gid, userId)) allowed.push(gid);
+    }
     const kb = { inline_keyboard: allowed.slice(0, 8).map((gid) => [{ text: `⚙️ ${gid}`, callback_data: `settings:${gid}` }]) };
     await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⚙️ Elige un grupo para configurar:")).catch(() => null);
     await api.sendMessage(Number(cb.message?.chat?.id ?? chatId), await autoTranslate(env, lang, "⚙️ Elige un grupo para configurar:"), { reply_markup: kb });
@@ -335,6 +339,10 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
       await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ No tienes permiso para este grupo."), true).catch(() => null);
       return;
     }
+    if (!MODES[modeCap]) {
+      await api.answerCallbackQuery(cb.id, "❌ Modo no válido.", true).catch(() => null);
+      return;
+    }
     await rdb.set(`group:${gid}:captcha_mode`, modeCap);
     await api.answerCallbackQuery(cb.id, await autoTranslate(env, "es", "✅ Modo de captcha actualizado.")).catch(() => null);
     await api.editMessageText(Number(cb.message?.chat?.id ?? gid), cb.message?.message_id ?? 0, await autoTranslate(env, "es", "⏳ Actualizando configuración...")).catch(() => null);
@@ -354,6 +362,10 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
       await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ No tienes permiso para este grupo."), true).catch(() => null);
       return;
     }
+    if (!ACTIONS[actionCap]) {
+      await api.answerCallbackQuery(cb.id, "❌ Acción no válida.", true).catch(() => null);
+      return;
+    }
     await rdb.set(`group:${gid}:captcha_action`, actionCap);
     await api.answerCallbackQuery(cb.id, await autoTranslate(env, "es", "✅ Acción actualizada.")).catch(() => null);
     await api.editMessageText(Number(cb.message?.chat?.id ?? gid), cb.message?.message_id ?? 0, await autoTranslate(env, "es", "⏳ Actualizando configuración...")).catch(() => null);
@@ -371,6 +383,10 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
     if (!(await hasGroupAccess(env, api, gid, userId))) {
       const lang = (await rdb.get(`group:${gid}:lang`)) ?? "es";
       await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ No tienes permiso para este grupo."), true).catch(() => null);
+      return;
+    }
+    if (!ACTIONS_2[action2Cap]) {
+      await api.answerCallbackQuery(cb.id, "❌ Acción no válida.", true).catch(() => null);
       return;
     }
     await rdb.set(`group:${gid}:captcha_action_2`, action2Cap);
@@ -413,7 +429,8 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
     }
 
     if (action === "timeout") {
-      const current = Number((await createRedis(env).get(`group:${gid}:kick_timeout`)) ?? 60);
+      const raw = Number((await createRedis(env).get(`group:${gid}:kick_timeout`)) ?? 60);
+      const current = Number.isFinite(raw) ? Math.max(5, Math.min(raw, 3600)) : 60;
       const nv = param === "add" ? Math.min(current + 5, 3600) : Math.max(current - 5, 5);
       await createRedis(env).set(`group:${gid}:kick_timeout`, String(nv));
       await api.answerCallbackQuery(cb.id, `${await autoTranslate(env, lang, "⏱ Tiempo actualizado.")} ${nv}s`).catch(() => null);

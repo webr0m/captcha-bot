@@ -1,12 +1,18 @@
 /**
- * Módulo users — log de actividad hacia el chat privado de logs del bot.
+ * Módulo users — log opcional de actividad hacia un chat de logs.
  * Portado desde `bot/modules/users.lua`.
+ *
+ * Se activa configurando el secreto/variable `USERS_LOG_CHAT_ID` (por ejemplo
+ * -1001095887694). Si no está configurado, no hace nada: nunca bloquea updates.
  */
 
 import { RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
 
-const LOG_CHAT_ID = -1001095887694; // chat id del canal/log del bot
+function logChatId(env: RedisEnv & { USERS_LOG_CHAT_ID?: string }): number {
+  const raw = Number(env.USERS_LOG_CHAT_ID ?? 0);
+  return Number.isFinite(raw) ? raw : 0;
+}
 
 function nowIso(): string {
   const d = new Date();
@@ -25,18 +31,25 @@ function getFrom(msg: any): string {
   return s;
 }
 
-export async function handleUsersLog(env: RedisEnv, api: TelegramApi, msg: any): Promise<void> {
+export async function handleUsersLog(env: RedisEnv & { USERS_LOG_CHAT_ID?: string }, api: TelegramApi, msg: any): Promise<void> {
+  const target = logChatId(env);
+  if (!target) return;
   const text = String(msg?.text ?? "");
   const chatId = msg?.chat?.id;
   const chatType = msg?.chat?.type ?? "?";
   const userStr = getFrom(msg);
-  void env;
-  await api.sendMessage(LOG_CHAT_ID, `${nowIso()} ${text} ${userStr} -> [${chatId}] [${chatType}]`);
+  await api.sendMessage(target, `${nowIso()} ${text} ${userStr} -> [${chatId}] [${chatType}]`);
 }
 
-export async function handleUsersLogCallback(api: TelegramApi, cb: any): Promise<void> {
+export async function handleUsersLogCallback(
+  env: RedisEnv & { USERS_LOG_CHAT_ID?: string },
+  api: TelegramApi,
+  cb: any,
+): Promise<void> {
+  const target = logChatId(env);
+  if (!target) return;
   const data = String(cb?.data ?? "");
   const chatId = cb?.message?.chat?.id;
   const userStr = getFrom(cb);
-  await api.sendMessage(LOG_CHAT_ID, `${nowIso()} ###cb:${data} ${userStr} -> [${chatId}]`);
+  await api.sendMessage(target, `${nowIso()} ###cb:${data} ${userStr} -> [${chatId}]`);
 }

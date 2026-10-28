@@ -2,5 +2,7 @@ node_modules
 dist
 .wrangler
 *.log
+.tail.pid
+.tail.err
 .env
 .dev.vars

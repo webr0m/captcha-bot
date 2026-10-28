@@ -93,15 +93,30 @@ export class TelegramApi {
   }
 
   async kickChatMember(chatId: number, userId: number): Promise<any> {
-    return this.call<any>("kickChatMember", { chat_id: chatId, user_id: userId });
-  }
-
-  async banChatMember(chatId: number, userId: number, restricted: boolean, untilDate: number): Promise<any> {
+    // "Kick" = expulsión temporal (60 s); después el usuario puede volver.
+    const untilDate = Math.floor(Date.now() / 1000) + 60;
     return this.call<any>("banChatMember", {
       chat_id: chatId,
       user_id: userId,
-      restricted,
       until_date: untilDate,
+      revoke_messages: true,
+    });
+  }
+
+  async banChatMember(chatId: number, userId: number, untilDate = 0, revokeMessages = true): Promise<any> {
+    return this.call<any>("banChatMember", {
+      chat_id: chatId,
+      user_id: userId,
+      until_date: untilDate,
+      revoke_messages: revokeMessages,
+    });
+  }
+
+  async unbanChatMember(chatId: number, userId: number, onlyIfBanned = true): Promise<any> {
+    return this.call<any>("unbanChatMember", {
+      chat_id: chatId,
+      user_id: userId,
+      only_if_banned: onlyIfBanned,
     });
   }
 
@@ -118,7 +133,7 @@ export class TelegramApi {
     return this.call<any>("setChatPermissions", { chat_id: chatId, permissions });
   }
 
-  async getChat(chatId: number): Promise<any> {
+  async getChat(chatId: number | string): Promise<any> {
     return this.call<any>("getChat", { chat_id: chatId });
   }
 

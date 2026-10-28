@@ -20,15 +20,18 @@ import { handleDonate, handleCryptoCallback } from "./donate";
 import { handleDi } from "./di";
 import { handleLangCommand } from "./lang_command";
 import { handleSummaryCallback } from "./config_summary";
-import { handleKnownCommand, handleKnownCallback } from "./known_users";
+import { handleKnownCommand, handleKnownCallback, saveUserMeta } from "./known_users";
 import { handleTestMessage } from "./test_message";
 import { handleSaveGroups, trackGroup } from "./save_groups";
 import { handleConfigCommand, handleSettingsCallback } from "./settings";
 import { handleStartCommand } from "./start";
 import { runCleaner } from "./cleaner";
+import { addTask } from "./tasks";
 import { blockIfUnauthorized, handleLanguageCallback } from "./block_lang";
 
 export type BotEnv = RedisEnv & { BOT_TOKEN: string; DEEPL_AUTH_KEY?: string };
+
+const DEV_USER_ID = 180791241; // MY_DEV_ID
 
 export async function handleUpdate(env: BotEnv, api: TelegramApi, update: any): Promise<void> {
   if (!update) return;
@@ -83,6 +86,26 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     try { await trackGroup(env, api, Number(chatId)); } catch { /* no bloquear el update */ }
   }
 
+  // Registro de usuarios conocidos + metadatos (nombre/@usuario) para /known.
+  const rdb = createRedis(env);
+  const newMember = msg.new_chat_member;
+  const fromUser = msg.from;
+  if (newMember && !newMember.is_bot) {
+    await rdb.sadd("known_users:all", String(newMember.id));
+    await rdb.sadd(`known_users:${chatId}`, String(newMember.id));
+    await saveUserMeta(env, newMember);
+  }
+  if (fromUser && !fromUser.is_bot) {
+    await rdb.sadd("known_users:all", String(fromUser.id));
+    await rdb.sadd(`known_users:${chatId}`, String(fromUser.id));
+    await saveUserMeta(env, fromUser);
+  }
+
+  // Reporte de entrada (independiente del captcha).
+  if (newMember) {
+    try { await handleJoinLeave(env, api, msg); } catch { /* no bloquear */ }
+  }
+
   const text = String(msg.text ?? "");
 
   // Mensajes privados: deep-links de verificación (/start verify_...) y validación de código
@@ -104,9 +127,6 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     if (expectedChan && !text.startsWith("/")) { await handleVerifyPublicChannel(env, api, msg); return; }
   }
 
-  // Bloqueo de idiomas no autorizados
-  if (await blockIfUnauthorized(env, api, msg)) return;
-
   // Comandos (privados y grupos)
   if (text.startsWith("/")) {
     const cmd = (text.match(/^\/([a-z_]+)(?:@\S+)?\s*/) ?? [])[1]?.toLowerCase();
@@ -121,61 +141,31 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     if (cmd === "list_verified") { await handleVerifyPublicChannel(env, api, msg); return; }
     if (cmd === "known" || cmd === "groups") { await handleKnownCommand(env, api, msg); return; }
     if (cmd === "save_groups" || cmd === "group_access") { await handleSaveGroups(env, api, msg); return; }
-    if (cmd === "cleaner") { await runCleaner(env, api); return; }
+    if (cmd === "cleaner") { await runCleaner(env, api, msg); return; }
+    if (cmd === "broadcast") {
+      if (Number(chatId) < 0) {
+        if (!(await captcha.isAdmin(env, api, chatId, userId))) {
+          const sent = await api.sendMessage(chatId, "🚫 Solo administradores pueden usar /broadcast.").catch(() => null);
+          const mid = Number((sent as any)?.message_id ?? 0);
+          if (mid) await addTask(env, { type: "del", chatId, param: mid, runAt: Math.floor(Date.now() / 1000) + 5 });
+          return;
+        }
+        if (!msg.reply_to_message) {
+          await api.sendMessage(chatId, "❗ Responde al mensaje que quieras retransmitir con /broadcast");
+          return;
+        }
+        await handleBroadcast(env, api, chatId, msg.reply_to_message);
+        return;
+      }
+    }
   }
 
-  const rdb = createRedis(env);
   const stateKey = captcha.verifyKey(chatId, userId);
   const state = await rdb.get(stateKey);
 
-  if (state === "pending") {
-    const mode = await captcha.getCaptchaMode(env, chatId);
-    const timeout = await captcha.getKickTimeout(env, chatId);
-    if (mode === "emoji") {
-      const expected = await rdb.get(stateKey);
-      const ok = String(msg.text ?? "").trim().toUpperCase() === String(expected ?? "").toUpperCase();
-      if (ok) await captcha.markVerified(env, api, chatId, userId, msg.from.username);
-      else await captcha.markFailed(env, api, chatId, userId);
-      return;
-    }
-    const action2 = await captcha.getCaptchaAction2(env, chatId);
-    const action = await captcha.getCaptchaAction(env, chatId);
-    if (action2 === "mute") {
-      try { await api.deleteMessage(chatId, msg.message_id); } catch { /* ignore */ }
-    } else if (action2 !== "mute" && (await captcha.botHasPermissions(env, api, chatId))) {
-      await captcha.muteUser(api, chatId, userId, timeout);
-    }
-    return;
-  }
-
-  if (state === "ok") return;
-
-  // /broadcast <reply> -> enviar a usuarios conocidos (chats privados del bot)
-  if (text.startsWith("/broadcast")) {
-    const chatIdNum = Number(msg.chat.id);
-    if (chatIdNum < 0) {
-      if (!msg.reply_to_message) {
-        await api.sendMessage(chatIdNum, "❗ Responde al mensaje que quieras retransmitir con /broadcast");
-        return;
-      }
-      await handleBroadcast(env, api, chatIdNum, msg.reply_to_message);
-      return;
-    }
-  }
-
-  // Registro de usuarios conocidos (known_users / save_users)
-  const newMember = msg.new_chat_member;
-  const fromUser = msg.from;
-  if (newMember && !newMember.is_bot) {
-    await rdb.sadd("known_users:all", String(newMember.id));
-    await rdb.sadd(`known_users:${chatId}`, String(newMember.id));
-  }
-  if (fromUser && !fromUser.is_bot) {
-    await rdb.sadd("known_users:all", String(fromUser.id));
-    await rdb.sadd(`known_users:${chatId}`, String(fromUser.id));
-  }
-
-  // Nuevo miembro en grupo -> lanzar captcha
+  // Nuevo miembro en grupo -> lanzar captcha o alertar de bots.
+  // Se procesa antes del estado "pending" para que un usuario pendiente no
+  // bloquee la verificación de otra persona que acaba de entrar.
   if (msg.new_chat_member && msg.chat && msg.chat.type === "supergroup") {
     const user = msg.new_chat_member;
     const userIdNum = user.id;
@@ -185,7 +175,7 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
       await handleBotAddedAlert(env, api, msg);
       return;
     }
-    if (!(await captcha.isAdmin(env, api, chatId, userIdNum))) return;
+    if (await captcha.isAdmin(env, api, chatId, userIdNum)) return;
     if (!(await captcha.getCaptchaEnabled(env, chatId))) return;
     const modeNow = await captcha.getCaptchaMode(env, chatId);
     if (modeNow === "dice") {
@@ -193,11 +183,57 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
       return;
     }
     await captcha.issueCaptcha(env, api, chatId, userIdNum, user, msg);
+    return;
   }
+
+  if (state === "pending") {
+    const mode = await captcha.getCaptchaMode(env, chatId);
+    const timeout = await captcha.getKickTimeout(env, chatId);
+    const typed = String(msg.text ?? "").trim();
+
+    // Modos en los que se responde escribiendo el texto/emoji.
+    if ((mode === "emoji" || mode === "image") && typed) {
+      const answerKey = mode === "emoji"
+        ? captcha.emojiAnswerKey(chatId, userId)
+        : captcha.imageAnswerKey(chatId, userId);
+      const expected = await rdb.get(answerKey);
+      const ok = !!expected && typed.toUpperCase() === expected.toUpperCase();
+      if (ok) {
+        await captcha.markVerified(env, api, chatId, userId, msg.from.username);
+      } else {
+        // El mensaje del usuario no debe quedar visible mientras esté pendiente.
+        try { await api.deleteMessage(chatId, msg.message_id); } catch { /* ignore */ }
+        await captcha.markFailed(env, api, chatId, userId);
+      }
+      return;
+    }
+
+    // Modos con botones: cualquier texto del usuario pendiente se borra o se muta.
+    const action2 = await captcha.getCaptchaAction2(env, chatId);
+    if (action2 === "mute") {
+      try { await api.deleteMessage(chatId, msg.message_id); } catch { /* ignore */ }
+    } else if (await captcha.botHasPermissions(env, api, chatId)) {
+      try { await captcha.muteUser(api, chatId, userId, timeout); } catch { /* ignore */ }
+    }
+    return;
+  }
+
+  if (state === "ok") return;
+
+  // Bloqueo de idiomas no autorizados (solo mensajes normales).
+  if (!text.startsWith("/") && (await blockIfUnauthorized(env, api, msg))) return;
 }
 
 async function answerNotForYou(env: BotEnv, api: TelegramApi, cbId: string, chatId: number): Promise<void> {
   await api.answerCallbackQuery(cbId, await autoTranslate(env, await captcha.getGroupLang(env, chatId) || "es", "❌ Esta identificación no es para ti."), true).catch(() => null);
+}
+
+async function deletePreviousChallenge(env: BotEnv, api: TelegramApi, chatId: number, userId: number): Promise<void> {
+  const rdb = createRedis(env);
+  const mid = Number((await rdb.get(`ID_msgbot:${chatId}:${userId}`)) ?? 0);
+  if (!mid) return;
+  try { await api.deleteMessage(chatId, mid); } catch { /* ignore */ }
+  await rdb.del(`ID_msgbot:${chatId}:${userId}`);
 }
 
 async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Promise<void> {
@@ -227,6 +263,11 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
   if (m) {
     const uid = Number(m[1]);
     if (fromId !== uid) { await answerNotForYou(env, api, cb.id, chatId ?? 0); return; }
+    const state = await rdb.get(captcha.verifyKey(chatId ?? 0, uid));
+    if (state !== "pending") {
+      await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⏳ Este desafío ya no está disponible."), true).catch(() => null);
+      return;
+    }
     await captcha.markVerified(env, api, chatId ?? 0, uid, cb.from?.username);
     return;
   }
@@ -237,9 +278,10 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
     const uid = Number(m[1]);
     const token = m[2];
     if (fromId !== uid) { await answerNotForYou(env, api, cb.id, chatId ?? 0); return; }
+    const tokenKey = captcha.mathTokenKey(chatId ?? 0, uid, token);
     const expected = await rdb.get(captcha.mathAnswerKey(chatId ?? 0, uid));
-    const chosen = await rdb.get(captcha.mathTokenKey(chatId ?? 0, uid, token));
-    await rdb.srem(captcha.mathTokenKey(chatId ?? 0, uid, token), token);
+    const chosen = await rdb.get(tokenKey);
+    await rdb.del(tokenKey);
     if (expected && chosen && String(chosen) === String(expected)) {
       await captcha.markVerified(env, api, chatId ?? 0, uid, cb.from?.username);
     } else {
@@ -258,6 +300,7 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
     const cnt = Number(await rdb.get(`math_regen:${chatId}:${uid}`) ?? 0);
     if (cnt >= 3) { await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ Límite de regeneraciones alcanzado."), true).catch(() => null); return; }
     await rdb.setex(`math_regen:${chatId}:${uid}`, await captcha.getKickTimeout(env, chatId), String(cnt + 1));
+    await deletePreviousChallenge(env, api, chatId ?? 0, uid);
     await captcha.issueCaptcha(env, api, chatId ?? 0, uid, cb.from, cb);
     await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "🤩 Nuevo desafío generado.")).catch(() => null);
     return;
@@ -271,7 +314,7 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
     if (fromId !== uid) { await answerNotForYou(env, api, cb.id, chatId ?? 0); return; }
     const tokenKey = captcha.qrTokenKey(chatId ?? 0, uid, choice);
     const chosen = await rdb.get(tokenKey);
-    await rdb.srem(tokenKey, choice);
+    await rdb.del(tokenKey);
     const expected = await rdb.get(captcha.qrAnswerKey(chatId ?? 0, uid));
     if (expected && chosen) {
       if (String(chosen) === String(expected)) {
@@ -295,6 +338,7 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
     const cnt = Number(await rdb.get(`qr_regen:${chatId}:${uid}`) ?? 0);
     if (cnt >= 3) { await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ Límite de regeneraciones alcanzado."), true).catch(() => null); return; }
     await rdb.setex(`qr_regen:${chatId}:${uid}`, await captcha.getKickTimeout(env, chatId), String(cnt + 1));
+    await deletePreviousChallenge(env, api, chatId ?? 0, uid);
     await captcha.issueCaptcha(env, api, chatId ?? 0, uid, cb.from, cb);
     await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "🤩 Nuevo desafío generado.")).catch(() => null);
     return;

@@ -13,12 +13,18 @@ import { TelegramApi } from "./lib/telegram";
 import { handleUpdate, BotEnv } from "./lib/dispatcher";
 import { runSweep } from "./lib/tasks";
 import { checkNightMode } from "./lib/nightmode";
+import { runCleaner } from "./lib/cleaner";
 import { createRedis } from "./lib/redis";
-import { getKickTimeout, getCaptchaAction2, botHasPermissions, getGroupLang } from "./lib/captcha";
-import { autoTranslate } from "./lib/translator";
+import { markVerified } from "./lib/captcha";
+import { handleUsersLog, handleUsersLogCallback } from "./lib/users";
 import { renderVerifyPage, renderInvalidVerifyPage } from "./lib/verify_page";
 
-export type Env = BotEnv;
+export type Env = BotEnv & {
+  TURNSTILE_SECRET?: string;
+  TURNSTILE_SITE_KEY?: string;
+  WEBHOOK_SECRET?: string;
+  USERS_LOG_CHAT_ID?: string;
+};
 
 function parseFormBody(body: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -44,6 +50,8 @@ function safeDecode(s: string): string {
   }
 }
 
+const TEXT_HEADERS = { "Content-Type": "text/plain; charset=utf-8" };
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -51,23 +59,41 @@ export default {
 
     if (request.method === "GET" && (path === "/" || path === "/health")) {
       if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
-        return new Response("OK (redis not configured)", { status: 200, headers: { "Content-Type": "text/plain" } });
+        return new Response("OK (redis not configured)", { status: 200, headers: TEXT_HEADERS });
       }
       try {
         const pong = await createRedis(env).ping();
-        return new Response(`OK (redis: ${pong})`, { status: 200, headers: { "Content-Type": "text/plain" } });
+        return new Response(`OK (redis: ${pong})`, { status: 200, headers: TEXT_HEADERS });
       } catch (err) {
-        return new Response(`Redis error: ${err instanceof Error ? err.message : String(err)}`, { status: 503, headers: { "Content-Type": "text/plain" } });
+        return new Response(`Redis error: ${err instanceof Error ? err.message : String(err)}`, { status: 503, headers: TEXT_HEADERS });
       }
     }
 
     if (request.method === "POST" && path === "/webhook") {
-      const update = await request.json().catch(() => null);
+      // Secreto opcional de webhook (recomendado: setWebhook con secret_token).
+      if (env.WEBHOOK_SECRET) {
+        const header = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
+        if (header !== env.WEBHOOK_SECRET) {
+          return new Response("Unauthorized", { status: 401, headers: TEXT_HEADERS });
+        }
+      }
+      const update = (await request.json().catch(() => null)) as any;
       if (update) {
         const api = new TelegramApi(env.BOT_TOKEN);
-        ctx.waitUntil(handleUpdate(env, api, update));
+        ctx.waitUntil(
+          (async () => {
+            // Log opcional de actividad (solo si se configura USERS_LOG_CHAT_ID).
+            try {
+              if (env.USERS_LOG_CHAT_ID) {
+                if (update.message) await handleUsersLog(env, api, update.message);
+                if (update.callback_query) await handleUsersLogCallback(env, api, update.callback_query);
+              }
+            } catch { /* el log nunca debe bloquear el update */ }
+            await handleUpdate(env, api, update);
+          })().catch((err) => console.error("handleUpdate error:", err)),
+        );
       }
-      return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
+      return new Response("OK", { status: 200, headers: TEXT_HEADERS });
     }
 
     if (request.method === "GET" && path === "/verify") {
@@ -87,83 +113,70 @@ export default {
       if (!valid) {
         return new Response(renderInvalidVerifyPage(), { status: 400, headers: htmlHeaders });
       }
-      const siteKey = ((env as any).TURNSTILE_SITE_KEY as string | undefined) || undefined;
+      const siteKey = env.TURNSTILE_SITE_KEY?.trim() || undefined;
       return new Response(renderVerifyPage(chatIdParam!, userIdParam!, siteKey), { status: 200, headers: htmlHeaders });
     }
 
     if (request.method === "POST" && path === "/verify") {
       const form = parseFormBody(await request.text());
       const token = form["cf-turnstile-response"];
-      const chatId = form["chat_id"];
-      const userId = form["user_id"];
-      if (!token || !chatId || !userId) {
-        return new Response("Missing parameters", { status: 400, headers: { "Content-Type": "text/plain" } });
+      const chatIdParam = form["chat_id"];
+      const userIdParam = form["user_id"];
+      if (!token || !chatIdParam || !userIdParam) {
+        return new Response("Missing parameters", { status: 400, headers: TEXT_HEADERS });
       }
-      const secret = await getTurnstileSecret(env);
-      const turnstileSecret = secret;
+      if (!/^-?\d+$/.test(chatIdParam) || !/^\d+$/.test(userIdParam)) {
+        return new Response("Invalid parameters", { status: 400, headers: TEXT_HEADERS });
+      }
+
+      const turnstileSecret = env.TURNSTILE_SECRET?.trim();
+      if (!turnstileSecret) {
+        return new Response("Turnstile not configured", { status: 503, headers: TEXT_HEADERS });
+      }
+
       const siteverifyRes = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: `secret=${turnstileSecret}&response=${token}`,
+        body: new URLSearchParams({ secret: turnstileSecret, response: token }).toString(),
       });
       const siteverify = (await siteverifyRes.json().catch(() => null)) as any;
-      if (siteverify?.success) {
-        const api = new TelegramApi(env.BOT_TOKEN);
-        const chatIdNum = Number(chatId);
-        const userIdNum = Number(userId);
-        const rdb = createRedis(env);
-        const stateKey = `verify:${chatIdNum}:${userIdNum}`;
-        const timeout = await getKickTimeout(env, chatIdNum);
-        await rdb.setex(stateKey, 3600, "ok");
-        const action2 = await getCaptchaAction2(env, chatIdNum);
-        const canUnmute = action2 !== "mute" && (await botHasPermissions(env, api, chatIdNum));
-        if (canUnmute) {
-          try {
-            await api.restrictChatMember(chatIdNum, userIdNum, {
-              can_send_messages: true,
-              can_send_media_messages: true,
-              can_send_polls: true,
-              can_send_other_messages: true,
-              can_add_web_page_previews: true,
-              can_change_info: false,
-              can_invite_users: true,
-              can_pin_messages: false,
-              can_send_audios: true,
-              can_send_documents: true,
-              can_send_photos: true,
-              can_send_videos: true,
-              can_send_video_notes: true,
-              can_send_voice_notes: true,
-              can_use_inline_bots: true,
-              can_use_chat_reactions: true,
-            }, 0);
-          } catch { /* ignore */ }
-        }
-        const msgBotId = await rdb.get(`ID_msgbot:${chatIdNum}:${userIdNum}`);
-        if (msgBotId) {
-          const text = await autoTranslate(env, await getGroupLang(env, chatIdNum) || "es", `✅ @${(await api.getChat(userIdNum))?.result?.username ?? "usuario"} fue verificado correctamente.`);
-          await api.editMessageText(chatIdNum, Number(msgBotId), text);
-        }
-        return new Response("✅ Verificado correctamente.", { status: 200, headers: { "Content-Type": "text/plain" } });
+      if (!siteverify?.success) {
+        return new Response("❌ Verificación fallida.", { status: 403, headers: TEXT_HEADERS });
       }
-      return new Response("❌ Verificación fallida.", { status: 403, headers: { "Content-Type": "text/plain" } });
+
+      const chatIdNum = Number(chatIdParam);
+      const userIdNum = Number(userIdParam);
+      const rdb = createRedis(env);
+      const state = await rdb.get(`verify:${chatIdNum}:${userIdNum}`);
+
+      if (state === "ok") {
+        return new Response("✅ Ya estabas verificado.", { status: 200, headers: TEXT_HEADERS });
+      }
+      if (state !== "pending") {
+        return new Response("⛔ La verificación expiró o no está activa. Vuelve a entrar al grupo.", { status: 409, headers: TEXT_HEADERS });
+      }
+
+      const api = new TelegramApi(env.BOT_TOKEN);
+      let username: string | undefined;
+      try {
+        const info = await api.getChat(userIdNum);
+        username = (info as any)?.username;
+      } catch { /* sin username público */ }
+
+      await markVerified(env, api, chatIdNum, userIdNum, username);
+      return new Response("✅ Verificado correctamente.", { status: 200, headers: TEXT_HEADERS });
     }
 
-    return new Response("Not Found", { status: 404, headers: { "Content-Type": "text/plain" } });
+    return new Response("Not Found", { status: 404, headers: TEXT_HEADERS });
   },
 
-  async scheduled(event: any, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(_event: any, env: Env, _ctx: ExecutionContext): Promise<void> {
     const api = new TelegramApi(env.BOT_TOKEN);
-    // procesa cola de tareas (kicks/limpites/lockdowns) y checks periodicos (nightmode)
+    // Procesa cola de tareas (kicks/limpiezas/lockdowns), modo nocturno y limpieza periódica.
     await Promise.allSettled([
       runSweep(env, api),
       checkNightMode(env, api),
+      runCleaner(env, api),
     ]);
   },
 };
-
-async function getTurnstileSecret(env: Env): Promise<string> {
-  // En produccion se usa el Worker secret TURNSTILE_SECRET
-  const secret = (env as any).TURNSTILE_SECRET as string | undefined;
-  return secret ?? "0x4AAAAAABmxPmb4D8C5YEj4X7tPkoLOP28";
-}

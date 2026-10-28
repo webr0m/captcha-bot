@@ -38,6 +38,20 @@ export function mathPendingKey(chatId: number, userId: number): string {
 export function qrPendingKey(chatId: number, userId: number): string {
   return `qr_pending:${chatId}:${userId}`;
 }
+export function emojiAnswerKey(chatId: number, userId: number): string {
+  return `emoji_captcha:${chatId}:${userId}`;
+}
+export function imageAnswerKey(chatId: number, userId: number): string {
+  return `image_captcha:${chatId}:${userId}`;
+}
+export function verifyDeadlineKey(chatId: number, userId: number): string {
+  return `verify_deadline:${chatId}:${userId}`;
+}
+export function attemptKey(chatId: number, userId: number): string {
+  return `verify_attempt:${chatId}:${userId}`;
+}
+
+export const PHOTO_MODES = new Set(["qr", "image"]);
 
 // ---------- Helpers ----------
 function mdEscape(s: any): string {
@@ -98,18 +112,25 @@ export async function getDeleteServiceMessages(env: RedisEnv, chatId: number): P
   return v === undefined || v === null || v === "true";
 }
 
+const FALLBACK_EMOJIS = [
+  "🍎", "🍌", "🍇", "🍓", "🍒", "🍑", "🍍", "🥝", "🥑", "🍉",
+  "🐶", "🐱", "🐭", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁",
+  "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐",
+  "⚽", "🏀", "🏈", "⚾", "🎾", "🏐", "🏉", "🎱", "🏓", "🏸",
+];
+
 export async function getRandomEmojis(env: RedisEnv): Promise<string[]> {
   const rdb = createRedis(env);
   const data = await rdb.get("emoji_list_json");
-  if (!data) return ["❌", "❌", "❌", "❌"];
+  if (!data) return pickRandom(FALLBACK_EMOJIS);
   let map: Record<string, string> = {};
   try {
     map = JSON.parse(data);
   } catch {
-    return ["❌", "❌", "❌", "❌"];
+    return pickRandom(FALLBACK_EMOJIS);
   }
   const values = Object.values(map);
-  if (!values || values.length < 4) return ["❌", "❌", "❌", "❌"];
+  if (!values || values.length < 4) return pickRandom(FALLBACK_EMOJIS);
   const selected: string[] = [];
   const used = new Set<number>();
   while (selected.length < 4) {
@@ -121,16 +142,32 @@ export async function getRandomEmojis(env: RedisEnv): Promise<string[]> {
   return selected;
 }
 
+function pickRandom(values: string[]): string[] {
+  const selected: string[] = [];
+  const used = new Set<number>();
+  while (selected.length < 4 && used.size < values.length) {
+    const i = Math.floor(Math.random() * values.length);
+    if (used.has(i)) continue;
+    used.add(i);
+    selected.push(values[i]);
+  }
+  while (selected.length < 4) selected.push("❌");
+  return selected;
+}
+
 export async function botHasPermissions(env: RedisEnv, api: TelegramApi, chatId: number): Promise<boolean> {
   try {
     const me = await api.getMe();
-    const myId = me?.id;
+    const myId = Number((me as any)?.id);
     if (!myId) return false;
-    const res = await api.getChatMember(chatId, myId);
-    const status = res?.status;
-    const member = res?.result;
-    if (status !== "administrator" && status !== "creator") return false;
-    const perms = member?.permissions;
+    // TelegramApi ya devuelve el ChatMember (no el wrapper { result }).
+    const member = await api.getChatMember(chatId, myId);
+    const status = (member as any)?.status;
+    if (status === "creator") return true;
+    if (status !== "administrator") return false;
+    // En ChatMemberAdministrator los permisos vienen en la raíz del objeto
+    // (no en una propiedad `permissions`).
+    const perms = (member as any)?.permissions ?? member;
     return !!(perms && perms.can_restrict_members && perms.can_delete_messages);
   } catch {
     return false;
@@ -139,12 +176,9 @@ export async function botHasPermissions(env: RedisEnv, api: TelegramApi, chatId:
 
 export async function isAdmin(env: RedisEnv, api: TelegramApi, chatId: number, userId: number): Promise<boolean> {
   try {
-    const res = await api.getChatMember(chatId, userId);
-    const status = res?.status;
-    const member = res?.result;
-    if (status === "administrator" || status === "creator") return true;
-    if (status === "left" || status === "kicked") return false;
-    return false;
+    const member = await api.getChatMember(chatId, userId);
+    const status = (member as any)?.status;
+    return status === "administrator" || status === "creator";
   } catch {
     return false;
   }
@@ -240,18 +274,16 @@ export async function buildEmojiChallenge(env: RedisEnv, api: TelegramApi, chatI
   const emojis = await getRandomEmojis(env);
   const target = emojis.join("");
   const rdb = createRedis(env);
-  await rdb.setex(verifyKey(chatId, userId), timeout, target);
-  const userInfo = await api.getChat(userId);
-  const userObj = (userInfo as any)?.result ?? userInfo;
-  const displayName = userObj?.first_name || userObj?.username || "usuario";
-  const message = `${await autoTranslate(env, lang, "🤩 Para verificar que eres humano, escribe exactamente estos emojis:")}\n\n\`\`\`${target}\`\`\``;
+  await rdb.setex(emojiAnswerKey(chatId, userId), timeout, target);
+  let displayName = "usuario";
+  try {
+    const info = await api.getChat(userId);
+    displayName = String(info?.first_name ?? info?.username ?? "usuario");
+  } catch { /* ignore */ }
+  const message = `${await autoTranslate(env, lang, "*Tip: puedes copiar el mensaje y pegarlo en el chat*")}\n\n${displayName}, ${await autoTranslate(env, lang, "escribe exactamente estos emojis para verificarte:")}\n\n\`\`\`${target}\`\`\``;
   const sent = await api.sendMessage(chatId, message, { parse_mode: "Markdown" });
-  const sentAny = sent as any;
-  const msgBotId = sentAny?.result?.message_id;
-  await rdb.setex(`ID_msgbot:${chatId}:${userId}`, 86400, msgBotId);
-  await rdb.setex(`ID_msgsys:${chatId}:${userId}`, 86400, String(msgBotId - 1));
-  await rdb.setex(`verify:${chatId}:${userId}:msg_id`, timeout + 20, msgBotId);
-  return { kind: "emoji" as const, prompt: message, keyboard: undefined };
+  const msgBotId = Number((sent as any)?.message_id ?? 0);
+  return { kind: "emoji" as const, prompt: message, msgBotId };
 }
 
 export async function buildQrChallenge(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, lang: string, timeout: number) {
@@ -278,8 +310,9 @@ export async function buildQrChallenge(env: RedisEnv, api: TelegramApi, chatId: 
   }
   rows.push([{ text: "🔄 " + (await autoTranslate(env, lang, "Nuevo desafío")), callback_data: `qr_regen:${userId}` }]);
   const keyboard = { inline_keyboard: rows };
-  const verifyUrl = `https://verify.webrom.cc/verify?chat_id=${chatId}&user_id=${userId}`;
-  return { kind: "qr" as const, prompt: await autoTranslate(env, lang, "🔐 Verificación por QR"), keyboard, verifyUrl, answerKey: qrAnswerKey(chatId, userId) };
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(token)}`;
+  const prompt = `${await autoTranslate(env, lang, "🔐 Verificación por QR")}\n${await autoTranslate(env, lang, "Escanea el código y pulsa el botón con el token que aparece. Tienes poco tiempo.")}`;
+  return { kind: "qr" as const, prompt, keyboard, qrUrl, token };
 }
 
 function mutateToken(base: string): string {
@@ -295,6 +328,32 @@ function mutateToken(base: string): string {
 
 // ---------- Issue captcha (por modo) ----------
 
+function msgbotKey(chatId: number, userId: number): string {
+  return `ID_msgbot:${chatId}:${userId}`;
+}
+function msgsysKey(chatId: number, userId: number): string {
+  return `ID_msgsys:${chatId}:${userId}`;
+}
+function msgtypeKey(chatId: number, userId: number): string {
+  return `msgtype:${chatId}:${userId}`;
+}
+
+async function rememberChallenge(
+  env: RedisEnv,
+  chatId: number,
+  userId: number,
+  timeout: number,
+  msgBotId: number,
+  msgSysId: number,
+  isPhoto: boolean,
+): Promise<void> {
+  const rdb = createRedis(env);
+  if (msgBotId > 0) await rdb.setex(msgbotKey(chatId, userId), 86400, String(msgBotId));
+  if (msgSysId > 0) await rdb.setex(msgsysKey(chatId, userId), 86400, String(msgSysId));
+  if (isPhoto) await rdb.setex(msgtypeKey(chatId, userId), timeout + 60, "photo");
+  await rdb.setex(`verify:${chatId}:${userId}:msg_id`, timeout + 20, String(msgBotId));
+}
+
 export async function issueCaptcha(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, user: any, msg: any): Promise<void> {
   const mode = await getCaptchaMode(env, chatId);
   const lang = await getGroupLang(env, chatId);
@@ -302,104 +361,176 @@ export async function issueCaptcha(env: RedisEnv, api: TelegramApi, chatId: numb
   const rdb = createRedis(env);
   const chatIdNum = Number(chatId);
   const userIdNum = Number(userId);
+  const now = Math.floor(Date.now() / 1000);
+
+  // Estado común: pendiente + deadline. La tarea "kick" respeta el deadline
+  // para que regenerar el desafío no provoque una expulsión prematura.
+  await rdb.setex(verifyKey(chatIdNum, userIdNum), timeout + 60, "pending");
+  await rdb.setex(verifyDeadlineKey(chatIdNum, userIdNum), timeout + 120, String(now + timeout + 5));
+  await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: now + timeout + 5 });
+
+  const silent = await getSilentMode(env, chatIdNum);
 
   if (mode === "math") {
     const challenge = await buildMathChallenge(env, chatIdNum, userIdNum, lang, timeout);
     await rdb.setex(mathPendingKey(chatIdNum, userIdNum), timeout, "pending");
     const sent = await api.sendMessage(chatIdNum, challenge.prompt, { parse_mode: "Markdown", reply_markup: challenge.keyboard });
-    const sentAny = sent as any;
-    const msgBotId = sentAny?.result?.message_id;
-    await rdb.setex(`ID_msgbot:${chatIdNum}:${userIdNum}`, 86400, msgBotId);
-    await rdb.setex(`ID_msgsys:${chatIdNum}:${userIdNum}`, 86400, String(msgBotId - 1));
-    await rdb.setex(`verify:${chatIdNum}:${userIdNum}:msg_id`, timeout + 20, msgBotId);
-    await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: Math.floor(Date.now() / 1000) + timeout + 5 });
+    await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), false);
     return;
   }
 
   if (mode === "emoji") {
     const challenge = await buildEmojiChallenge(env, api, chatIdNum, userIdNum, lang, timeout);
-    await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: Math.floor(Date.now() / 1000) + timeout + 5 });
+    await rememberChallenge(env, chatIdNum, userIdNum, timeout, challenge.msgBotId, Number(msg?.message_id ?? 0), false);
     return;
   }
 
   if (mode === "qr") {
     const challenge = await buildQrChallenge(env, api, chatIdNum, userIdNum, lang, timeout);
     await rdb.setex(qrPendingKey(chatIdNum, userIdNum), timeout, "pending");
-    await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: Math.floor(Date.now() / 1000) + timeout + 5 });
+    const mention = mentionMd(String(user?.first_name ?? user?.username ?? "usuario"), userIdNum);
+    const sent = await api.sendPhoto(chatIdNum, challenge.qrUrl, `${mention}\n${challenge.prompt}`, {
+      parse_mode: "Markdown",
+      reply_markup: challenge.keyboard,
+    });
+    await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), true);
+    return;
+  }
+
+  if (mode === "image") {
+    const code = randToken(5).toUpperCase();
+    await rdb.setex(imageAnswerKey(chatIdNum, userIdNum), timeout, code);
+    const url = `https://placehold.co/300x100/png?text=${encodeURIComponent(code)}&font=roboto`;
+    const mention = mentionMd(String(user?.first_name ?? user?.username ?? "usuario"), userIdNum);
+    const caption = `${mention}\n${await autoTranslate(env, lang, "Escribe el texto que aparece en la imagen para verificarte.")}`;
+    const sent = await api.sendPhoto(chatIdNum, url, caption, { parse_mode: "Markdown" });
+    await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), true);
     return;
   }
 
   if (mode === "turnstile") {
-    const rdbLocal = createRedis(env);
-    await rdbLocal.setex(verifyKey(chatIdNum, userIdNum), timeout + 60, "pending");
     const verifyUrl = `https://verify.webrom.cc/verify?chat_id=${chatIdNum}&user_id=${userIdNum}`;
-    const text = `${await autoTranslate(env, lang, "🔐 ")} ${await autoTranslate(env, lang, "verifica que no eres un bot, Presiona el botón y completa el captcha en la web.")}`;
-    const keyboard = { inline_keyboard: [[{ text: await autoTranslate(env, lang, "✅ Verificar con Captcha"), url: verifyUrl }]] };
-    const sent = await api.sendMessage(chatIdNum, text, { parse_mode: "HTML", reply_markup: keyboard });
-    const sentAny = sent as any;
-    const msgBotId = sentAny?.result?.message_id;
-    await rdbLocal.setex(`ID_msgbot:${chatIdNum}:${userIdNum}`, 86400, msgBotId);
-    await rdbLocal.setex(`ID_msgsys:${chatIdNum}:${userIdNum}`, 86400, String(msgBotId - 1));
-    const nowTurnstile = Math.floor(Date.now() / 1000);
-    await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: nowTurnstile + timeout + 5 });
+    const buttonText = await autoTranslate(env, lang, "✅ Verificar con Captcha");
+    const text = `${await autoTranslate(env, lang, "🔐 Verifica que no eres un bot, pulsa el botón y completa el captcha en la web.")}`;
+
+    if (silent) {
+      // Modo silencioso: intenta verificar por privado; si el usuario no ha
+      // iniciado el bot, deja un aviso mínimo en el grupo con el enlace.
+      try {
+        const dm = await api.sendMessage(userIdNum, text, {
+          reply_markup: { inline_keyboard: [[{ text: buttonText, url: verifyUrl }]] },
+        });
+        await rememberChallenge(env, chatIdNum, userIdNum, timeout, 0, Number(msg?.message_id ?? 0), false);
+        void dm;
+        return;
+      } catch {
+        // fallback al grupo
+      }
+    }
+
+    const mention = mentionMd(String(user?.first_name ?? user?.username ?? "usuario"), userIdNum);
+    const sent = await api.sendMessage(chatIdNum, `${mention} ${text}`, {
+      parse_mode: "Markdown",
+      reply_markup: { inline_keyboard: [[{ text: buttonText, url: verifyUrl }]] },
+    });
+    await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), false);
     return;
   }
 
-  // mode === "button"
+  // mode === "button" (y cualquier modo legado desconocido)
   const text = `${await autoTranslate(env, lang, "👋 ")}${String(user?.first_name ?? user?.username ?? "usuario")} ${await autoTranslate(env, lang, ", pulsa el botón para verificarte.")}`;
   const keyboard = { inline_keyboard: [[{ text: await autoTranslate(env, lang, "✅ Verificarme"), callback_data: `simple:${userIdNum}` }]] };
   const sent = await api.sendMessage(chatIdNum, text, { reply_markup: keyboard });
-  const sentAny = sent as any;
-  const msgBotId = sentAny?.result?.message_id;
-  await rdb.setex(`ID_msgbot:${chatIdNum}:${userIdNum}`, 86400, msgBotId);
-  await rdb.setex(`ID_msgsys:${chatIdNum}:${userIdNum}`, 86400, String(msgBotId - 1));
-  const nowButton = Math.floor(Date.now() / 1000);
-  await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: nowButton + timeout + 5 });
+  await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), false);
 }
 
 // ---------- Verificar éxito / fallo ----------
 
+export async function clearChallengeState(env: RedisEnv, chatId: number, userId: number): Promise<void> {
+  const rdb = createRedis(env);
+  await rdb.del(
+    mathAnswerKey(chatId, userId),
+    emojiAnswerKey(chatId, userId),
+    imageAnswerKey(chatId, userId),
+    qrAnswerKey(chatId, userId),
+    mathPendingKey(chatId, userId),
+    qrPendingKey(chatId, userId),
+    verifyDeadlineKey(chatId, userId),
+    attemptKey(chatId, userId),
+    intentKey(chatId, userId),
+    `math_regen:${chatId}:${userId}`,
+    `qr_regen:${chatId}:${userId}`,
+    `verify:${chatId}:${userId}:msg_id`,
+    `verify_attempt:${chatId}:${userId}`,
+    `dice_target:${chatId}:${userId}`,
+    `dice_token:${chatId}:${userId}`,
+    `ID_msgspin:${chatId}:${userId}`,
+  );
+}
+
+async function editChallengeResult(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, text: string): Promise<void> {
+  const rdb = createRedis(env);
+  const msgId = Number((await rdb.get(msgbotKey(chatId, userId))) ?? 0);
+  if (!msgId) return;
+  const isPhoto = (await rdb.get(msgtypeKey(chatId, userId))) === "photo";
+  try {
+    if (isPhoto) await api.editMessageCaption(chatId, msgId, text);
+    else await api.editMessageText(chatId, msgId, text);
+  } catch { /* mensaje borrado o sin permisos */ }
+}
+
 export async function markVerified(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, userName?: string): Promise<void> {
   const rdb = createRedis(env);
-  const key = verifyKey(chatId, userId);
-  const timeout = await getKickTimeout(env, chatId);
-  await rdb.setex(key, 86400, "ok");
-  await rdb.del(intentKey(chatId, userId));
+  await rdb.setex(verifyKey(chatId, userId), 86400, "ok");
+
   const action2 = await getCaptchaAction2(env, chatId);
   const canUnmute = action2 !== "mute" && (await botHasPermissions(env, api, chatId));
   if (canUnmute) {
     try { await unmuteUser(api, chatId, userId); } catch { /* ignore */ }
   }
-  const msgBotId = await rdb.get(`ID_msgbot:${chatId}:${userId}`);
-  const msgSysId = await rdb.get(`ID_msgsys:${chatId}:${userId}`);
+
+  const display = userName ? `@${userName}` : "usuario";
+  const text = await autoTranslate(env, await getGroupLang(env, chatId), `✅ ${display} fue verificado correctamente.`);
+  await editChallengeResult(env, api, chatId, userId, text);
+
+  const msgBotId = Number((await rdb.get(msgbotKey(chatId, userId))) ?? 0);
+  const msgSysId = Number((await rdb.get(msgsysKey(chatId, userId))) ?? 0);
   const delBot = await getDeleteBotMessages(env, chatId);
   const delSys = await getDeleteServiceMessages(env, chatId);
-  if (msgBotId) {
-    const text = await autoTranslate(env, await getGroupLang(env, chatId), `✅ @${userName ?? "usuario"} fue verificado correctamente.`);
-    await api.editMessageText(chatId, Number(msgBotId), text);
-  }
   const now = Math.floor(Date.now() / 1000);
-  if (msgBotId) await addTask(env, { type: "del", chatId, param: Number(msgBotId), runAt: now + 5 });
-  if (msgSysId) await addTask(env, { type: "del", chatId, param: Number(msgSysId), runAt: now + 5 });
+  if (delBot && msgBotId) await addTask(env, { type: "del", chatId, param: msgBotId, runAt: now + 5 });
+  if (delSys && msgSysId) await addTask(env, { type: "del", chatId, param: msgSysId, runAt: now + 5 });
+
+  await clearChallengeState(env, chatId, userId);
+  await rdb.del(msgbotKey(chatId, userId), msgsysKey(chatId, userId), msgtypeKey(chatId, userId));
 }
 
 export async function markFailed(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, callbackId?: string): Promise<void> {
   const rdb = createRedis(env);
-  const key = intentKey(chatId, userId);
-  const current = await rdb.get(key);
-  if (current === "ok") {
-    // segundo intento fallido -> expulsión
-    const action = await getCaptchaAction(env, chatId);
+  const lang = await getGroupLang(env, chatId);
+  const current = await rdb.get(attemptKey(chatId, userId));
+
+  if (current === "1") {
+    // Segundo fallo: expulsión inmediata (la tarea respeta el estado ok).
     const now = Math.floor(Date.now() / 1000);
-    await addTask(env, { type: "kick", chatId, param: userId, runAt: now + 5 });
-    const msgBotId = await rdb.get(`ID_msgbot:${chatId}:${userId}`);
-    if (msgBotId) {
-      await api.editMessageText(chatId, Number(msgBotId), await autoTranslate(env, await getGroupLang(env, chatId), "❌ fue expulsado por fallar la verificación."));
+    await addTask(env, { type: "kick", chatId, param: userId, runAt: now + 3 });
+    await editChallengeResult(env, api, chatId, userId, await autoTranslate(env, lang, "❌ fue expulsado por fallar la verificación."));
+    if (callbackId) {
+      await api.answerCallbackQuery(callbackId, await autoTranslate(env, lang, "❌ Incorrecto. Has agotado tus intentos."), true).catch(() => null);
     }
+    await clearChallengeState(env, chatId, userId);
     return;
   }
-  await rdb.setex(key, await getKickTimeout(env, chatId), "ok");
+
+  await rdb.setex(attemptKey(chatId, userId), await getKickTimeout(env, chatId), "1");
   if (callbackId) {
-    await api.answerCallbackQuery(callbackId, await autoTranslate(env, await getGroupLang(env, chatId) || "es", "❌ Incorrecto, tienes un intento más"), true).catch(() => null);
+    await api.answerCallbackQuery(callbackId, await autoTranslate(env, lang, "❌ Incorrecto, tienes un intento más"), true).catch(() => null);
+  } else {
+    const sent = await api.sendMessage(chatId, await autoTranslate(env, lang, "❌ Incorrecto, tienes un intento más")).catch(() => null);
+    const msgId = Number((sent as any)?.message_id ?? 0);
+    if (msgId) {
+      const now = Math.floor(Date.now() / 1000);
+      await addTask(env, { type: "del", chatId, param: msgId, runAt: now + 5 });
+    }
   }
 }

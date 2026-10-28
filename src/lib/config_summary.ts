@@ -16,15 +16,14 @@ export async function handleSummaryCallback(env: RedisEnv, api: TelegramApi, cb:
   const lang = (await createRedis(env).get(`group:${gid}:lang`)) ?? "es";
   const t = (key: string) => autoTranslate(env, lang, key);
 
-  const access = await createRedis(env).get(`group_access:${gid}:${userId}`);
-  if (access !== "true") {
+  if (!(await captcha.isAdmin(env, api, gid, userId))) {
     await api.answerCallbackQuery(cb.id, await t("⛔ No tienes permiso para ver esta configuración."), true).catch(() => null);
     return;
   }
 
   const timeout = Number((await createRedis(env).get(`group:${gid}:kick_timeout`)) ?? 60);
   const captchaEnabled = (await createRedis(env).get(`group:${gid}:captcha_enabled`)) === "true";
-  const mode = (await createRedis(env).get(`group:${gid}:captcha_mode`)) ?? "emoji";
+  const mode = (await createRedis(env).get(`group:${gid}:captcha_mode`)) ?? "button";
   const delBot = (await createRedis(env).get(`group:${gid}:delete_bot_messages`) ?? "true") === "true";
   const delSys = (await createRedis(env).get(`group:${gid}:delete_service_messages`) ?? "true") === "true";
 

@@ -24,6 +24,16 @@ function isTmpOrAggKey(key: string): boolean {
 
 interface UserMeta { id: number; name: string; username: string; }
 
+/** Guarda nombre/@usuario para enriquecer /known y /groups. */
+export async function saveUserMeta(env: RedisEnv, user: any): Promise<void> {
+  const uid = Number(user?.id ?? 0);
+  if (!uid || user?.is_bot) return;
+  const rdb = createRedis(env);
+  await rdb.set(`user_meta:${uid}`, String(user.first_name ?? ""));
+  await rdb.set(`user_meta:${uid}:last`, String(user.last_name ?? ""));
+  await rdb.set(`user_meta:${uid}:username`, String(user.username ?? ""));
+}
+
 async function getUserMeta(env: RedisEnv, api: TelegramApi, uid: number): Promise<UserMeta | null> {
   const rdb = createRedis(env);
   const key = `user_meta:${uid}`;
@@ -196,6 +206,10 @@ export async function handleKnownCommand(env: RedisEnv, api: TelegramApi, msg: a
 }
 
 export async function handleKnownCallback(env: RedisEnv, api: TelegramApi, cb: any): Promise<void> {
+  if (Number(cb?.from?.id ?? 0) !== DEV_USER_ID) {
+    await api.answerCallbackQuery(cb?.id, "🚫 No autorizado.", true).catch(() => null);
+    return;
+  }
   const m = (cb?.data ?? "").match(/^kun:pg:([A-Za-z0-9_]+):(\d+)$/);
   if (m) {
     const token = m[1];

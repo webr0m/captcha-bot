@@ -16,6 +16,11 @@ import { addTask } from "./tasks";
 const DEFAULT_TIMEOUT = 60;
 const CODE_LEN = 5;
 const VERIFIED_TTL_SEC = 30 * 24 * 3600;
+const WRONG_CODE_BAN_SEC = 15;
+
+function escapeHtml(s: any): string {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 function jrKey(chatId: number, userId: number): string {
   return `jr:${chatId}:${userId}`;
@@ -88,8 +93,14 @@ export async function handleChannelJoinRequest(env: RedisEnv, api: TelegramApi, 
   await storeRequest(env, chatId, userId, code, timeout);
 
   const intro = `🔐 ${await autoTranslate(env, lang, "Verificación para unirte al canal")}`;
-  const body = await autoTranslate(env, lang, `Envía este código **exactamente** en este chat dentro de ${timeout} s:\n\n\`${code}\``);
-  try { await api.sendMessage(userId, `${intro}\n\n${body}`); } catch { /* ignore: user may not have started the bot */ }
+  const body = await autoTranslate(
+    env,
+    lang,
+    `Envía este código <b>exactamente</b> en este chat dentro de ${timeout} s:\n\n<code>${escapeHtml(code)}</code>`,
+  );
+  try {
+    await api.sendMessage(userId, `${intro}\n\n${body}`, { parse_mode: "HTML" });
+  } catch { /* ignore: user may not have started the bot */ }
 
   const now = Math.floor(Date.now() / 1000);
   await addTask(env, { type: "decline", chatId, param: userId, runAt: now + timeout });
@@ -111,8 +122,8 @@ export async function handleStartVerify(env: RedisEnv, api: TelegramApi, msg: an
     return;
   }
   const lang = await createRedis(env).get(`group:${chatId}:lang`) ?? "es";
-  const text = await autoTranslate(env, lang, `📩 Envía este código exactamente:\n\n\`${code}\``);
-  await api.sendMessage(msg.chat.id, text);
+  const text = await autoTranslate(env, lang, `📩 Envía este código exactamente:\n\n<code>${escapeHtml(code)}</code>`);
+  await api.sendMessage(msg.chat.id, text, { parse_mode: "HTML" });
   return;
 }
 
@@ -124,22 +135,27 @@ export async function handlePrivateCheck(env: RedisEnv, api: TelegramApi, msg: a
   const chatId = Number(lastC);
   const expected = await createRedis(env).get(jrCodeKey(chatId, userId));
   if (!expected) {
-    await api.sendMessage(msg.chat.id, "⛔ Tu solicitud de verificación expiró. Vuelve a tocar *Verificar* en el canal.");
+    await api.sendMessage(msg.chat.id, "⛔ Tu solicitud de verificación expiró. Vuelve a tocar Verificar en el canal.");
     return;
   }
-  if (String(msg.text).toUpperCase() === String(expected).toUpperCase()) {
-    await createRedis(env).setex(jrKey(chatId, userId), VERIFIED_TTL_SEC, "ok");
-    await createRedis(env).del(jrCodeKey(chatId, userId));
-    await createRedis(env).del(lastChannelKey(userId));
+  if (String(msg.text).trim().toUpperCase() === String(expected).toUpperCase()) {
+    const rdb = createRedis(env);
+    await rdb.setex(jrKey(chatId, userId), VERIFIED_TTL_SEC, "ok");
+    await rdb.del(jrCodeKey(chatId, userId));
+    await rdb.del(lastChannelKey(userId));
+    // Aprobar la solicitud pendiente en el canal (si sigue pendiente).
+    try { await api.approveChatJoinRequest(chatId, userId); } catch { /* ya aprobada o expirada */ }
     await api.sendMessage(msg.chat.id, "✅ Verificación correcta. Te hemos aprobado en el canal.");
   } else {
-    const sent = await api.sendMessage(msg.chat.id, "❌ Código incorrecto. Revisa y vuelve a intentarlo.");
-    const sentAny = sent as any;
-    const msgId = sentAny?.result?.message_id;
+    const sent = await api.sendMessage(
+      msg.chat.id,
+      `❌ Código incorrecto. Revisa y vuelve a intentarlo; tienes ${WRONG_CODE_BAN_SEC} segundos antes de ser baneado del canal.`,
+    );
+    const msgId = Number((sent as any)?.message_id ?? 0);
     const now = Math.floor(Date.now() / 1000);
-    await addTask(env, { type: "ban", chatId, param: userId, runAt: now + 15 });
+    await addTask(env, { type: "ban", chatId, param: userId, runAt: now + WRONG_CODE_BAN_SEC });
     if (msgId) {
-      await api.editMessageText(msg.chat.id, Number(msgId), "❌ Código incorrecto. se acabo el tiempo de verificación, Baneado del canal.").catch(() => null);
+      await addTask(env, { type: "del", chatId: msg.chat.id, param: msgId, runAt: now + WRONG_CODE_BAN_SEC + 5 });
     }
   }
 }

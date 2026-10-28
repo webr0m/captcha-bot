@@ -25,8 +25,7 @@ Este bot te ayuda a proteger tu grupo de Telegram contra bots no deseados y usua
 • Configuración dinámica por grupo
 • Control total desde el chat privado
 
-💡 Para comenzar, añade el bot a tu grupo como administrador y luego usa /config en el chat privado del bot o de manera inline:
-@Antiubot config.
+💡 Para comenzar, añade el bot a tu grupo como administrador y luego usa /config en el chat privado del bot.
 
 👇 Usa los botones para más información:`;
 

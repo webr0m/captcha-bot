@@ -39,11 +39,14 @@ export interface RedisClient {
   setex(key: string, seconds: number, value: string): Promise<void>;
   del(...keys: string[]): Promise<number>;
   incr(key: string): Promise<number>;
+  incrby(key: string, amount: number): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
+  setnx(key: string, value: string): Promise<boolean>;
   smembers(key: string): Promise<string[]>;
   sismember(key: string, member: string): Promise<boolean>;
   sadd(key: string, member: string): Promise<number>;
   srem(key: string, member: string): Promise<number>;
+  scard(key: string): Promise<number>;
   keys(pattern: string): Promise<string[]>;
 }
 
@@ -71,9 +74,17 @@ export function createRedis(env: RedisEnv): RedisClient {
       const result = await upstashCommand(env, ["INCR", key]);
       return Number(result);
     },
+    async incrby(key, amount) {
+      const result = await upstashCommand(env, ["INCRBY", key, amount]);
+      return Number(result);
+    },
     async expire(key, seconds) {
       const result = await upstashCommand(env, ["EXPIRE", key, seconds]);
       return Number(result);
+    },
+    async setnx(key, value) {
+      const result = await upstashCommand(env, ["SET", key, value, "NX"]);
+      return result === "OK";
     },
     async smembers(key) {
       const result = await upstashCommand(env, ["SMEMBERS", key]);
@@ -90,6 +101,10 @@ export function createRedis(env: RedisEnv): RedisClient {
     },
     async srem(key, member) {
       const result = await upstashCommand(env, ["SREM", key, member]);
+      return Number(result);
+    },
+    async scard(key) {
+      const result = await upstashCommand(env, ["SCARD", key]);
       return Number(result);
     },
     async keys(pattern) {

@@ -10,6 +10,7 @@ import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
 import { autoTranslate } from "./translator";
 import { addTask } from "./tasks";
+import { bumpStat } from "./stats";
 
 export const FALLBACK_LANG = "es";
 
@@ -532,6 +533,7 @@ export async function markVerified(env: RedisEnv, api: TelegramApi, chatId: numb
 
   await clearChallengeState(env, chatId, userId);
   await rdb.del(msgbotKey(chatId, userId), msgsysKey(chatId, userId), msgtypeKey(chatId, userId));
+  await bumpStat(env, chatId, "verifications");
 }
 
 export async function markFailed(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, callbackId?: string): Promise<void> {

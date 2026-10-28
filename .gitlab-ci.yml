@@ -1,0 +1,29 @@
+stages:
+  - check
+
+default:
+  image: node:24
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+
+before_script:
+  - npm ci --cache .npm --prefer-offline
+
+typecheck:
+  stage: check
+  script:
+    - npm run cf-typecheck
+
+unit-tests:
+  stage: check
+  script:
+    - npm test
+
+wrangler-dry-run:
+  stage: check
+  script:
+    - npm run deploy:dry

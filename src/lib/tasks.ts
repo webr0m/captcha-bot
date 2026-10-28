@@ -10,34 +10,14 @@
 
 import { createRedis, RedisEnv } from "./redis";
 import { autoTranslate } from "./translator";
+import { bumpStat } from "./stats";
+import { hasRequiredAdminRights } from "./access";
+import { parseTask, taskToString } from "./task_format";
+import type { Task } from "./task_format";
 
-export type TaskType = "del" | "kick" | "lockdown" | "unlock" | "decline" | "ban";
-
-export interface Task {
-  type: TaskType;
-  chatId: number;
-  param: number; // messageId para "del", userId para kick/ban/decline
-  runAt: number; // unix seconds
-}
+export type { Task, TaskType } from "./task_format";
 
 const TASKS_KEY = "tasks";
-
-function taskToString(task: Task): string {
-  return `${task.type}|${task.chatId}|${task.param}|${task.runAt}`;
-}
-
-function parseTask(member: string): Task | null {
-  const parts = String(member).split("|");
-  if (parts.length < 4) return null;
-  const type = parts[0];
-  const chatId = Number(parts[1]);
-  const param = Number(parts[2]);
-  const runAt = Number(parts[3]);
-  if (!Number.isFinite(chatId) || !Number.isFinite(param) || !Number.isFinite(runAt)) return null;
-  const allowed: TaskType[] = ["del", "kick", "lockdown", "unlock", "decline", "ban"];
-  if (!allowed.includes(type as TaskType)) return null;
-  return { type: type as TaskType, chatId, param, runAt };
-}
 
 export async function addTask(env: RedisEnv, task: Task): Promise<void> {
   const rdb = createRedis(env);
@@ -131,6 +111,7 @@ async function runKick(env: RedisEnv, api: any, task: Task): Promise<void> {
     } else {
       await api.kickChatMember(chatId, userId);
     }
+    await bumpStat(env, chatId, action === "ban" ? "bans" : "kicks");
   } catch { /* el usuario pudo salir o ya no existe */ }
 
   const text = await autoTranslate(env, lang, "❌ fue expulsado por no verificar a tiempo.");
@@ -175,6 +156,30 @@ async function executeTask(env: RedisEnv, api: any, task: Task): Promise<void> {
   if (task.type === "ban") {
     // Ban permanente por defecto.
     await api.banChatMember(task.chatId, task.param, 0);
+    await bumpStat(env, task.chatId, "bans");
+    return;
+  }
+
+  if (task.type === "leave") {
+    // Salida automática si el bot sigue sin los permisos necesarios.
+    let botId = 0;
+    try { botId = Number((await api.getMe())?.id ?? 0); } catch { return; }
+    if (!botId) return;
+    let member: any;
+    try { member = await api.getChatMember(task.chatId, botId); } catch { return; }
+    const status = member?.status;
+    let isChannel = false;
+    try {
+      const info = await api.getChat(task.chatId);
+      isChannel = (info as any)?.type === "channel" || (info as any)?.result?.type === "channel";
+    } catch { /* asumimos grupo */ }
+    const adminOk = isChannel
+      ? status === "administrator" || status === "creator"
+      : hasRequiredAdminRights(member);
+    if (adminOk) return;
+    try { await api.leaveChat(task.chatId); } catch { return; }
+    const rdb = createRedis(env);
+    await rdb.del(`group_known:${task.chatId}`, `channel_known:${task.chatId}`, `leave_scheduled:${task.chatId}`).catch(() => null);
     return;
   }
 

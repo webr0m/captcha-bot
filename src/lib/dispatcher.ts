@@ -28,8 +28,20 @@ import { handleStartCommand } from "./start";
 import { runCleaner } from "./cleaner";
 import { addTask } from "./tasks";
 import { blockIfUnauthorized, handleLanguageCallback } from "./block_lang";
+import { handleMyChatMember, ensureGroupConfigured } from "./onboarding";
+import { enforceCas } from "./cas";
+import {
+  enforceAntiFlood,
+  enforceAntiLink,
+  handleAntiFloodCommand,
+  handleAntiLinkCommand,
+  handleAllowLinkCommand,
+  handleCasCommand,
+} from "./antiabuse";
+import { handleStatsCommand, handleStatsCallback } from "./stats_commands";
+import { bumpStat } from "./stats";
 
-export type BotEnv = RedisEnv & { BOT_TOKEN: string; DEEPL_AUTH_KEY?: string };
+export type BotEnv = RedisEnv & { BOT_TOKEN: string; DEEPL_AUTH_KEY?: string; CAS_API_KEY?: string };
 
 const DEV_USER_ID = 180791241; // MY_DEV_ID
 
@@ -42,6 +54,8 @@ export async function handleUpdate(env: BotEnv, api: TelegramApi, update: any): 
   } else if (update.chat_join_request) {
     const req = update.chat_join_request;
     await handleChannelJoinRequest(env, api, req);
+  } else if (update.my_chat_member) {
+    await handleMyChatMember(env, api, update.my_chat_member);
   }
 }
 
@@ -140,6 +154,11 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     if (cmd === "post_verify") { await handleVerifyPublicChannel(env, api, msg); return; }
     if (cmd === "list_verified") { await handleVerifyPublicChannel(env, api, msg); return; }
     if (cmd === "known" || cmd === "groups") { await handleKnownCommand(env, api, msg); return; }
+    if (cmd === "stats") { await handleStatsCommand(env, api, msg); return; }
+    if (cmd === "cas") { await handleCasCommand(env, api, msg); return; }
+    if (cmd === "antiflood") { await handleAntiFloodCommand(env, api, msg); return; }
+    if (cmd === "antilink") { await handleAntiLinkCommand(env, api, msg); return; }
+    if (cmd === "allowlink" || cmd === "unallowlink") { await handleAllowLinkCommand(env, api, msg); return; }
     if (cmd === "save_groups" || cmd === "group_access") { await handleSaveGroups(env, api, msg); return; }
     if (cmd === "cleaner") { await runCleaner(env, api, msg); return; }
     if (cmd === "broadcast") {
@@ -176,6 +195,8 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
       return;
     }
     if (await captcha.isAdmin(env, api, chatId, userIdNum)) return;
+    await bumpStat(env, chatId, "joins");
+    if (await enforceCas(env, api, chatId, user, Number(msg.message_id ?? 0))) return;
     if (!(await captcha.getCaptchaEnabled(env, chatId))) return;
     const modeNow = await captcha.getCaptchaMode(env, chatId);
     if (modeNow === "dice") {
@@ -216,6 +237,14 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
       try { await captcha.muteUser(api, chatId, userId, timeout); } catch { /* ignore */ }
     }
     return;
+  }
+
+  // Moderación automática (solo mensajes normales de grupo, nunca comandos).
+  // Se aplica también a usuarios ya verificados, que antes se saltaban el final.
+  if (!msg.from.is_bot && (chatType === "group" || chatType === "supergroup")) {
+    await bumpStat(env, chatId, "messages");
+    if (await enforceAntiFlood(env, api, msg)) return;
+    if (await enforceAntiLink(env, api, msg)) return;
   }
 
   if (state === "ok") return;
@@ -373,6 +402,10 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
   if (m) {
     const gid = Number(m[1]);
     const ok = await captcha.botHasPermissions(env, api, gid);
+    if (ok) {
+      await ensureGroupConfigured(env, gid);
+      await createRedis(env).del(`leave_scheduled:${gid}`).catch(() => null);
+    }
     const lang = await captcha.getGroupLang(env, gid);
     const rdbLocal = createRedis(env);
     const msgBotId = await rdbLocal.get(`perms_bot:${gid}`);
@@ -383,6 +416,12 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
     if (msgBotId) {
       await api.editMessageText(gid, Number(msgBotId), textOut, { reply_markup: kb } as any).catch(() => null);
     }
+    return;
+  }
+
+  // stats:<gid> (estadísticas del grupo)
+  if (data.startsWith("stats:")) {
+    await handleStatsCallback(env, api, cb);
     return;
   }
 

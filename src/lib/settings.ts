@@ -11,6 +11,7 @@ import { handleNightmodeCallback } from "./nightmode";
 import { handleSummaryCallback } from "./config_summary";
 import { handleLanguageCallback } from "./block_lang";
 import { handleKnownCallback } from "./known_users";
+import { isFeatureEnabled } from "./security_rules";
 
 const MODES: Record<string, string> = {
   emoji: "🧩 Emojis",
@@ -64,6 +65,9 @@ interface SettingsState {
   delBot: boolean;
   delSys: boolean;
   silentMode: boolean;
+  cas: boolean;
+  antiFlood: boolean;
+  antiLink: boolean;
   groupName?: string;
 }
 
@@ -81,9 +85,12 @@ async function getSettingsState(env: EnvWithBot, gid: number): Promise<SettingsS
   const delSysRaw = await rdb.get(`group:${gid}:delete_service_messages`);
   const delSys = delSysRaw === undefined || delSysRaw === null || delSysRaw === "true";
   const silentMode = (await rdb.get(`group:${gid}:silent_mode`)) === "true";
+  const cas = isFeatureEnabled(await rdb.get(`group:${gid}:cas_enabled`));
+  const antiFlood = isFeatureEnabled(await rdb.get(`group:${gid}:antiflood_enabled`));
+  const antiLink = isFeatureEnabled(await rdb.get(`group:${gid}:antilink_enabled`));
   const info = await getChatTitle(env, gid);
   const groupName = info?.title ?? `Grupo ${gid}`;
-  return { timeout, captcha, mode, action, admRep, action2, delBot, delSys, silentMode, groupName };
+  return { timeout, captcha, mode, action, admRep, action2, delBot, delSys, silentMode, cas, antiFlood, antiLink, groupName };
 }
 
 type EnvWithBot = RedisEnv & { BOT_TOKEN: string };
@@ -178,10 +185,23 @@ function buildSettingsKeyboard(s: SettingsState & { groupName?: string }, gid: n
     { text: `🤫 Modo Silencioso:`, callback_data: `pop:silent:${gid}` },
     { text: s.silentMode ? "✅ ON" : "❌ OFF", callback_data: `setup:toggle:silent_mode:${gid}` },
   ]);
+  row([
+    { text: `🛡️ CAS (anti-spam):`, callback_data: `pop:cas:${gid}` },
+    { text: s.cas ? "✅ ON" : "❌ OFF", callback_data: `setup:toggle:cas:${gid}` },
+  ]);
+  row([
+    { text: `🌊 Anti-flood:`, callback_data: `pop:antiflood:${gid}` },
+    { text: s.antiFlood ? "✅ ON" : "❌ OFF", callback_data: `setup:toggle:antiflood:${gid}` },
+  ]);
+  row([
+    { text: `🔗 Anti-enlaces:`, callback_data: `pop:antilink:${gid}` },
+    { text: s.antiLink ? "✅ ON" : "❌ OFF", callback_data: `setup:toggle:antilink:${gid}` },
+  ]);
   row([{ text: `🌓 Modo Nocturno 🌓`, callback_data: `nightmode_status:${gid}` }]);
   row([{ text: `🗣️ Filtro de Idiomas 🗣️`, callback_data: `langblock_menu:${gid}` }]);
   row([{ text: `🌐 Idioma del Bot 🌐`, callback_data: `lang:${gid}` }]);
   row([{ text: `📊 Ver resumen 📊`, callback_data: `summary:${gid}` }]);
+  row([{ text: `📈 Estadísticas 📈`, callback_data: `stats:${gid}` }]);
   row([
     { text: `🔙 Volver`, callback_data: `setup:back:back:${gid}` },
   ]);
@@ -273,6 +293,9 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
       delsys: "Permite configurar el borrado automatico de mensajes que envía el sistema (usuario se unió al grupo o añadiste a un usuario) para mayor limpieza en tu grupo.",
       admrep: "🆕 Permite enviar un reporte a los admins sobre el usuario que entra, además de poder autorizar, banear o expulsar sin tener que esperar la verificación .",
       silent: "🤫 En modo silencioso el bot no envía el mensaje de captcha al grupo; el usuario queda restringido y debe verificarse igualmente.",
+      cas: "🛡️ CAS consulta la lista pública de Combot Anti-Spam al entrar un usuario y lo banea si está listado. Si la API falla, no bloquea la entrada.",
+      antiflood: "🌊 Anti-flood limita los mensajes seguidos por usuario (12 cada 10 s por defecto) y aplica un mute temporal. Ajusta el límite con /antiflood limit.",
+      antilink: "🔗 Anti-enlaces borra los enlaces no permitidos enviados por usuarios que no son administradores. Añade dominios con /allowlink.",
     };
     const text = texts[popup];
     if (text) {
@@ -445,12 +468,15 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
         delsys: `group:${gid}:delete_service_messages`,
         adm_rep: `group:${gid}:adm_report`,
         silent_mode: `group:${gid}:silent_mode`,
+        cas: `group:${gid}:cas_enabled`,
+        antiflood: `group:${gid}:antiflood_enabled`,
+        antilink: `group:${gid}:antilink_enabled`,
       };
       const key = keyMap[param];
       if (key) {
-        // delbot/delsys están activos por defecto cuando la clave no existe.
+        // delbot/delsys/cas/antiflood/antilink están activos por defecto cuando la clave no existe.
         const raw = await createRedis(env).get(key);
-        const defaultOn = param === "delbot" || param === "delsys";
+        const defaultOn = param === "delbot" || param === "delsys" || param === "cas" || param === "antiflood" || param === "antilink";
         const val = raw === null || raw === undefined ? defaultOn : raw === "true";
         await createRedis(env).set(key, val ? "false" : "true");
         await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, `🧩 Bot: ${val ? "❌ OFF" : "✅ ON"}`)).catch(() => null);

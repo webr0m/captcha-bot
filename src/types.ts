@@ -43,6 +43,8 @@ export interface TelegramUpdate {
   callback_query?: TelegramCallbackQuery;
   inline_query?: unknown;
   chat_join_request?: unknown;
+  my_chat_member?: unknown;
+  chat_member?: unknown;
   message_reaction?: unknown;
 }
 

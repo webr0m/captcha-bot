@@ -217,4 +217,13 @@ export class TelegramApi {
   async declineChatJoinRequest(chatId: number, userId: number): Promise<any> {
     return this.call<any>("declineChatJoinRequest", { chat_id: chatId, user_id: userId });
   }
+
+  async leaveChat(chatId: number): Promise<any> {
+    return this.call<any>("leaveChat", { chat_id: chatId });
+  }
+
+  async getChatMemberCount(chatId: number): Promise<number> {
+    const result = await this.call<any>("getChatMemberCount", { chat_id: chatId });
+    return Number(result) || 0;
+  }
 }

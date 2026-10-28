@@ -3,7 +3,7 @@
  * Portado desde `bot/modules/bot_detector.lua`.
  */
 
-import { createRedis, RedisEnv } from "./redis";
+import { RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
 import { autoTranslate } from "./translator";
 import * as captcha from "./captcha";
@@ -67,34 +67,7 @@ export async function handleBotAddedAlert(env: RedisEnv, api: TelegramApi, msg: 
     return;
   }
 
-  // El bot fue agregado por un admin -> preconfigurar grupo
-  if (newUser.id === myBotId) {
-    const canPreconfig = await captcha.botHasPermissions(env, api, chatId);
-    if (canPreconfig) {
-      const rdb = createRedis(env);
-      await rdb.set(`group:${chatId}:captcha_enabled`, "true");
-      await rdb.set(`group:${chatId}:adm_report`, "true");
-      await rdb.set(`group:${chatId}:delete_bot_messages`, "true");
-      await rdb.set(`group:${chatId}:delete_service_messages`, "true");
-      await api.sendMessage(chatId, await autoTranslate(env, lang, "El bot quedó preconfigurado, ahora puedes personalizar su configuración en tu grupo con el comando /config en el privado del bot"));
-      return;
-    }
-    const kb = { inline_keyboard: [[{ text: await autoTranslate(env, lang, "🔐 Abrir bot en privado para configurar"), url: `https://t.me/${await captchaBotUsername(api)}?start=config_${chatId}` }]] };
-    const sent = await api.sendMessage(chatId, await autoTranslate(env, lang, "Para que el bot pueda funcionar en tu grupo debes activarlo y darle administración incluyendo los permisos de borrar mensajes y restringir usuarios"), { reply_markup: kb });
-    const msgBotId = Number((sent as any)?.message_id ?? 0);
-    if (msgBotId) {
-      const rdb = createRedis(env);
-      await rdb.setex(`perms_bot:${chatId}`, 3600, String(msgBotId));
-    }
-  }
-}
-
-async function captchaBotUsername(api: TelegramApi): Promise<string> {
-  try {
-    const me = await api.getMe();
-    const username = (me as any)?.username;
-    return username ?? "";
-  } catch {
-    return "";
-  }
+  // El alta del propio bot la gestiona `onboarding.ts` vía my_chat_member.
+  // Aquí solo se alerta de bots ajenos añadidos por usuarios no administradores.
+  if (newUser.id === myBotId) return;
 }

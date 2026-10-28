@@ -28,6 +28,7 @@ export async function handleSaveGroups(env: RedisEnv, api: TelegramApi, msg: any
     const uid = admin?.user?.id;
     if (uid === undefined || uid === null) continue;
     await rdb.set(`group_access:${chatId}:${uid}`, "true");
+    await rdb.del(`group_access_neg:${chatId}:${uid}`);
   }
 }
 
@@ -46,6 +47,7 @@ export async function trackGroup(env: RedisEnv, api: TelegramApi, chatId: number
     const uid = admin?.user?.id;
     if (uid === undefined || uid === null) continue;
     await rdb.set(`group_access:${chatId}:${uid}`, "true");
+    await rdb.del(`group_access_neg:${chatId}:${uid}`);
   }
   await rdb.setex(`group_access_refresh:${chatId}`, 3600, "1");
 }

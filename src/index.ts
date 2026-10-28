@@ -16,6 +16,7 @@ import { checkNightMode } from "./lib/nightmode";
 import { createRedis } from "./lib/redis";
 import { getKickTimeout, getCaptchaAction2, botHasPermissions, getGroupLang } from "./lib/captcha";
 import { autoTranslate } from "./lib/translator";
+import { renderVerifyPage, renderInvalidVerifyPage } from "./lib/verify_page";
 
 export type Env = BotEnv;
 
@@ -49,7 +50,15 @@ export default {
     const path = url.pathname;
 
     if (request.method === "GET" && (path === "/" || path === "/health")) {
-      return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
+      if (!env.UPSTASH_REDIS_REST_URL || !env.UPSTASH_REDIS_REST_TOKEN) {
+        return new Response("OK (redis not configured)", { status: 200, headers: { "Content-Type": "text/plain" } });
+      }
+      try {
+        const pong = await createRedis(env).ping();
+        return new Response(`OK (redis: ${pong})`, { status: 200, headers: { "Content-Type": "text/plain" } });
+      } catch (err) {
+        return new Response(`Redis error: ${err instanceof Error ? err.message : String(err)}`, { status: 503, headers: { "Content-Type": "text/plain" } });
+      }
     }
 
     if (request.method === "POST" && path === "/webhook") {
@@ -59,6 +68,27 @@ export default {
         ctx.waitUntil(handleUpdate(env, api, update));
       }
       return new Response("OK", { status: 200, headers: { "Content-Type": "text/plain" } });
+    }
+
+    if (request.method === "GET" && path === "/verify") {
+      const chatIdParam = url.searchParams.get("chat_id");
+      const userIdParam = url.searchParams.get("user_id");
+      const valid = !!chatIdParam && !!userIdParam && /^-?\d+$/.test(chatIdParam) && /^\d+$/.test(userIdParam);
+      const htmlHeaders = {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Content-Security-Policy":
+          "default-src 'none'; script-src 'unsafe-inline' https://challenges.cloudflare.com https://static.cloudflareinsights.com; " +
+          "style-src 'unsafe-inline'; frame-src https://challenges.cloudflare.com; connect-src 'self' https: data:; " +
+          "img-src 'self' data: https:; font-src https://challenges.cloudflare.com data:; base-uri 'none'; form-action 'self'",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "no-referrer",
+      };
+      if (!valid) {
+        return new Response(renderInvalidVerifyPage(), { status: 400, headers: htmlHeaders });
+      }
+      const siteKey = ((env as any).TURNSTILE_SITE_KEY as string | undefined) || undefined;
+      return new Response(renderVerifyPage(chatIdParam!, userIdParam!, siteKey), { status: 200, headers: htmlHeaders });
     }
 
     if (request.method === "POST" && path === "/verify") {

@@ -1,11 +1,14 @@
 # ✅ Checklist de puesta en producción — captcha-bot (Cloudflare Workers)
 
 ## 0. Estado de esta instalación
-- Worker desplegado: https://captcha-bot.ridrogo.workers.dev → `/health` responde `200 OK`.
+- Worker desplegado: https://captcha-bot.ridrogo.workers.dev → `/health` responde `200 OK (redis: PONG)`.
+- Bot: **@Antiubot** (id `822926313`).
 - Webhook de Telegram configurado: `https://captcha-bot.ridrogo.workers.dev/webhook` (0 updates pendientes).
-- Secrets cargados: `BOT_TOKEN`, `TURNSTILE_SECRET`.
-- Pendiente: `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (crear Redis en Upstash).
-- Dominio público de verificación: `verify.webrom.cc`.
+- Secrets cargados: `BOT_TOKEN`, `TURNSTILE_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`.
+- Redis: Upstash `captcha-bot` (free tier, us-east-1).
+- Turnstile: widget **GBOT** con dominios `webrom.cc` y `verify.webrom.cc`.
+- Página de verificación: la sirve el propio Worker en `https://verify.webrom.cc/verify?chat_id=...&user_id=...` mediante la ruta `verify.webrom.cc/*` (ya no usa túnel).
+- Pendiente: pruebas funcionales en un grupo real (join/captcha/kick).
 
 ## 1. Setup local
 ```bash

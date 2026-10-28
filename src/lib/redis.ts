@@ -16,14 +16,17 @@ async function upstashCommand(env: RedisEnv, args: Array<string | number>): Prom
       Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify([args]),
+    body: JSON.stringify(args),
   });
   const data: any = await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error(`Upstash REST error (${res.status}): ${JSON.stringify(data)}`);
   }
-  if (data && typeof data === "object" && !Array.isArray(data) && typeof data.error === "string") {
-    throw new Error(`Upstash REST error: ${data.error}`);
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    if (typeof data.error === "string") {
+      throw new Error(`Upstash REST error: ${data.error}`);
+    }
+    if ("result" in data) return data.result;
   }
   if (Array.isArray(data)) return data[0];
   return data;

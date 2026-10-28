@@ -2,9 +2,11 @@
 
 Bot de Telegram anti-spam/captcha migrado de **Lua 5.4 + telegram-bot-lua + copas** → **Cloudflare Workers**.
 
+- **Bot:** [@Antiubot](https://t.me/Antiubot)
 - **Instancia:** https://captcha-bot.ridrogo.workers.dev
-- **Webhook:** `POST /webhook` · **Health:** `GET /health` · **Turnstile:** `POST /verify`
-- **Verificación pública:** `https://verify.webrom.cc/verify`
+- **Webhook:** `POST /webhook` · **Health:** `GET /health` · **Turnstile:** `GET/POST /verify`
+- **Verificación pública:** `https://verify.webrom.cc/verify?chat_id=...&user_id=...` (la sirve el propio Worker; sin túnel)
+- **Base de datos:** Upstash Redis (REST)
 
 ## Arquitectura
 
@@ -50,7 +52,7 @@ wrangler deploy                    # deploy a Cloudflare
 1. Crear **Upstash Redis** (free tier) y obtener REST URL/Token.
 2. `wrangler deploy`.
 3. `curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" -d "url=https://<worker>.workers.dev/webhook"`.
-4. Configurar el frontend Turnstile apuntando a `https://<worker>.workers.dev/verify`.
+4. La página Turnstile se sirve con `GET /verify`; la ruta pública se define en `wrangler.jsonc` (`verify.<dominio>/*`) y el dominio debe estar autorizado en el widget de Turnstile.
 
 ## Estado
 

@@ -4,8 +4,9 @@
 - Worker desplegado: https://captcha-bot.ridrogo.workers.dev → `/health` responde `200 OK (redis: PONG)`.
 - Bot: **@Antiubot** (id `822926313`).
 - Webhook de Telegram: `https://captcha-bot.ridrogo.workers.dev/webhook` (0 updates pendientes, `allowed_updates`: `message`, `callback_query`, `chat_join_request`).
-- Secrets cargados: `BOT_TOKEN`, `TURNSTILE_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`.
-- Opcionales: `WEBHOOK_SECRET` (validación de cabecera) y `USERS_LOG_CHAT_ID` (log de actividad); no configurados.
+- Secrets cargados: `BOT_TOKEN`, `TURNSTILE_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `WEBHOOK_SECRET`.
+- Opcional: `USERS_LOG_CHAT_ID` (log de actividad); no configurado.
+- Webhook registrado con `secret_token` (cabecera obligatoria); sin cabecera o con valor incorrecto → `401`.
 - Redis: Upstash `captcha-bot` (free tier, us-east-1).
 - Turnstile: widget **GBOT** con dominios `webrom.cc` y `verify.webrom.cc`.
 - Página de verificación: la sirve el propio Worker en `https://verify.webrom.cc/verify?chat_id=...&user_id=...` mediante la ruta `verify.webrom.cc/*` (sin túnel).
@@ -27,8 +28,8 @@ wrangler secret put UPSTASH_REDIS_REST_URL
 wrangler secret put UPSTASH_REDIS_REST_TOKEN
 wrangler secret put DEEPL_AUTH_KEY
 wrangler secret put TURNSTILE_SECRET
-# opcionales
-wrangler secret put WEBHOOK_SECRET
+wrangler secret put WEBHOOK_SECRET   # recomendado
+# opcional
 wrangler secret put USERS_LOG_CHAT_ID
 ```
 > `wrangler secret put` es interactivo; para automatizar usar `wrangler deploy --secrets-file <archivo.env>`.
@@ -47,6 +48,7 @@ wrangler deploy
 ```bash
 curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
   -d "url=https://captcha-bot.<account>.workers.dev/webhook" \
+  -d "secret_token=<WEBHOOK_SECRET>" \
   -d "allowed_updates=[\"message\",\"callback_query\",\"chat_join_request\"]"
 ```
 
@@ -57,6 +59,7 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 ## 7. Verificación Turnstile
 - Frontend (verify.webrom.cc/verify) → POST al Worker `/verify` con `cf-turnstile-response`, `chat_id`, `user_id`.
 - El Worker valida contra `https://challenges.cloudflare.com/turnstile/v0/siteverify` y exige que el estado siga en `pending`.
+- Hardening: `success`, `action=verify`, `cdata=<chatId>_<userId>`, `hostname` permitido y `remoteip`; rate limit de 30 intentos/10 min por IP.
 
 ## 8. Pruebas funcionales
 - [x] `/start` en privado → bienvenida + botones (probado vía webhook).
@@ -68,6 +71,8 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 - [x] `/cleaner` manual (admin/dev) y limpieza periódica desde cron.
 - [x] `GET /verify` válido → 200 con Turnstile; inválido → 400.
 - [x] `POST /verify` con token falso → 403.
+- [x] `POST /verify` con rate limit superado → 429 (probado y clave limpiada).
+- [x] `/webhook` sin cabecera secreta → 401; cabecera incorrecta → 401; cabecera correcta → 200.
 - [x] Flujo Turnstile real → `✅ Verificado correctamente.` y `verify:* = ok`.
 - [x] Captcha **button** real en grupo: `pending` → callback `simple:<uid>` → `ok`, mensaje editado y claves limpiadas.
 - [ ] Join con captcha **math** → respuesta correcta/incorrecta → kick a timeout.

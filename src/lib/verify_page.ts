@@ -52,6 +52,7 @@ ${body}
 
 export function renderVerifyPage(chatId: string, userId: string, siteKey?: string): string {
   const key = siteKey || DEFAULT_SITE_KEY;
+  const cdata = `${chatId}_${userId}`;
   const body = `  <div class="logo">🛡️</div>
   <h1>Verificación anti-spam</h1>
   <p>Resuelve el captcha para desbloquear tu acceso al grupo.</p>
@@ -77,6 +78,8 @@ export function renderVerifyPage(chatId: string, userId: string, siteKey?: strin
         window.turnstile.render('#turnstile-container', {
           sitekey: ${JSON.stringify(key)},
           theme: 'dark',
+          action: 'verify',
+          cData: ${JSON.stringify(cdata)},
           callback: window.__turnstileOk,
           'expired-callback': window.__turnstileExpired,
           'error-callback': window.__turnstileError

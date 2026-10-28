@@ -51,6 +51,20 @@ function safeDecode(s: string): string {
 }
 
 const TEXT_HEADERS = { "Content-Type": "text/plain; charset=utf-8" };
+const VERIFY_RATE_LIMIT = 30;
+const VERIFY_RATE_WINDOW_SEC = 600;
+const ALLOWED_TURNSTILE_HOSTS = new Set([
+  "verify.webrom.cc",
+  "webrom.cc",
+  "captcha-bot.ridrogo.workers.dev",
+]);
+
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -72,8 +86,8 @@ export default {
     if (request.method === "POST" && path === "/webhook") {
       // Secreto opcional de webhook (recomendado: setWebhook con secret_token).
       if (env.WEBHOOK_SECRET) {
-        const header = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
-        if (header !== env.WEBHOOK_SECRET) {
+        const header = request.headers.get("X-Telegram-Bot-Api-Secret-Token") ?? "";
+        if (!safeEqual(header, env.WEBHOOK_SECRET)) {
           return new Response("Unauthorized", { status: 401, headers: TEXT_HEADERS });
         }
       }
@@ -129,24 +143,47 @@ export default {
         return new Response("Invalid parameters", { status: 400, headers: TEXT_HEADERS });
       }
 
+      const chatIdNum = Number(chatIdParam);
+      const userIdNum = Number(userIdParam);
+      const rdb = createRedis(env);
+
+      // Rate limit por IP para /verify (evita fuerza bruta y abuso).
+      const ip = request.headers.get("CF-Connecting-IP") ?? "unknown";
+      const rlKey = `rl:verify:${ip}`;
+      const attempts = await rdb.incr(rlKey);
+      if (attempts === 1) await rdb.expire(rlKey, VERIFY_RATE_WINDOW_SEC);
+      if (attempts > VERIFY_RATE_LIMIT) {
+        return new Response("Demasiados intentos. Espera unos minutos.", { status: 429, headers: TEXT_HEADERS });
+      }
+
       const turnstileSecret = env.TURNSTILE_SECRET?.trim();
       if (!turnstileSecret) {
         return new Response("Turnstile not configured", { status: 503, headers: TEXT_HEADERS });
       }
 
+      const siteverifyParams = new URLSearchParams({ secret: turnstileSecret, response: token });
+      if (ip !== "unknown") siteverifyParams.set("remoteip", ip);
+
       const siteverifyRes = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ secret: turnstileSecret, response: token }).toString(),
+        body: siteverifyParams.toString(),
       });
       const siteverify = (await siteverifyRes.json().catch(() => null)) as any;
-      if (!siteverify?.success) {
+
+      // El widget se renderiza con action y cdata ligados a este chat/usuario.
+      // Además se valida el hostname para que un token de otro sitio no sirva.
+      const expectedCdata = `${chatIdNum}_${userIdNum}`;
+      const hostname = String(siteverify?.hostname ?? "");
+      const valid =
+        siteverify?.success === true &&
+        siteverify?.action === "verify" &&
+        siteverify?.cdata === expectedCdata &&
+        ALLOWED_TURNSTILE_HOSTS.has(hostname);
+      if (!valid) {
         return new Response("❌ Verificación fallida.", { status: 403, headers: TEXT_HEADERS });
       }
 
-      const chatIdNum = Number(chatIdParam);
-      const userIdNum = Number(userIdParam);
-      const rdb = createRedis(env);
       const state = await rdb.get(`verify:${chatIdNum}:${userIdNum}`);
 
       if (state === "ok") {

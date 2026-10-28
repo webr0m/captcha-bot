@@ -62,13 +62,28 @@ export async function issueDice(env: RedisEnv, api: TelegramApi, chatId: number,
   }
 
   // Estado común de verificación: el cron solo expulsa si sigue "pending".
+  // La expulsión se programa únicamente después de enviar los mensajes.
   await rdb.setex(captcha.verifyKey(chatId, userId), timeout + 60, "pending");
   await rdb.setex(captcha.verifyDeadlineKey(chatId, userId), timeout + 120, String(now + timeout + 5));
-  await addTask(env, { type: "kick", chatId, param: userId, runAt: now + timeout + 5 });
 
-  const sent = await api.sendMessage(chatId, "*Elige un dado:*", { parse_mode: "Markdown", reply_markup: keyboard });
+  let sent: any;
+  let spinRes: any;
+  try {
+    sent = await api.sendMessage(chatId, "*Elige un dado:*", { parse_mode: "Markdown", reply_markup: keyboard });
+    spinRes = await api.sendSticker(chatId, spinId);
+  } catch (err) {
+    await captcha.clearChallengeState(env, chatId, userId).catch(() => null);
+    await rdb.del(captcha.verifyKey(chatId, userId), captcha.verifyDeadlineKey(chatId, userId)).catch(() => null);
+    throw err;
+  }
+
+  try {
+    await addTask(env, { type: "kick", chatId, param: userId, runAt: now + timeout + 5 });
+  } catch (err) {
+    console.error("No se pudo programar el kick de dice:", err);
+  }
+
   const msgBotId = Number((sent as any)?.message_id ?? 0);
-  const spinRes = await api.sendSticker(chatId, spinId);
   const msgSpinId = Number((spinRes as any)?.message_id ?? 0);
 
   if (msgBotId) await rdb.setex(`ID_msgbot:${chatId}:${userId}`, timeout + 60, String(msgBotId));

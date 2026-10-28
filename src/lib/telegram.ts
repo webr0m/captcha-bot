@@ -6,6 +6,28 @@
 
 import type { TelegramOkResponse } from "../types";
 
+const REQUEST_TIMEOUT_MS = 12_000;
+const MAX_ATTEMPTS = 3;
+const MAX_RETRY_WAIT_MS = 8_000;
+
+export class TelegramApiError extends Error {
+  readonly method: string;
+  readonly status: number;
+  readonly retryAfter: number;
+
+  constructor(method: string, status: number, retryAfter: number, description: string) {
+    super(`Telegram API error ${method} (${status || "network"}): ${description}`);
+    this.name = "TelegramApiError";
+    this.method = method;
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export class TelegramApi {
   private readonly token: string;
 
@@ -14,16 +36,59 @@ export class TelegramApi {
   }
 
   private async call<T = any>(method: string, body: Record<string, any> = {}): Promise<T> {
-    const res = await fetch(`https://api.telegram.org/bot${this.token}/${method}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const json = (await res.json().catch(() => null)) as TelegramOkResponse & { result?: T };
-    if (!json || json.ok !== true) {
-      throw new Error(`Telegram API error ${method}: ${json?.description ?? "unknown error"}`);
+    const url = `https://api.telegram.org/bot${this.token}/${method}`;
+    let lastError: TelegramApiError | null = null;
+    let waited = 0;
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        const reason = controller.signal.aborted
+          ? `timeout after ${REQUEST_TIMEOUT_MS} ms`
+          : err instanceof Error
+            ? err.message
+            : "network error";
+        lastError = new TelegramApiError(method, 0, 0, reason);
+        if (attempt === MAX_ATTEMPTS) break;
+        const delay = 300 * attempt;
+        if (waited + delay > MAX_RETRY_WAIT_MS) break;
+        await sleep(delay);
+        waited += delay;
+        continue;
+      }
+      clearTimeout(timer);
+
+      const json = (await res.json().catch(() => null)) as (TelegramOkResponse & { result?: T; parameters?: { retry_after?: number } }) | null;
+      if (json?.ok === true) return json.result as T;
+
+      const status = Number(res.status) || 0;
+      const retryAfter = Number(json?.parameters?.retry_after ?? 0);
+      const description = String(json?.description ?? (status ? `HTTP ${status}` : "unknown error"));
+      lastError = new TelegramApiError(method, status, retryAfter, description);
+
+      // Solo reintentamos errores transitorios (429 / 5xx). Los 4xx de
+      // validación (usuario inexistente, sin permisos, etc.) no mejoran.
+      const retryable = status === 429 || status >= 500;
+      if (!retryable || attempt === MAX_ATTEMPTS) break;
+
+      let delay = retryAfter > 0 ? retryAfter * 1000 : 500 * attempt;
+      if (waited + delay > MAX_RETRY_WAIT_MS) delay = Math.max(0, MAX_RETRY_WAIT_MS - waited);
+      if (delay <= 0) break;
+      await sleep(delay);
+      waited += delay;
     }
-    return json.result as T;
+
+    throw lastError ?? new TelegramApiError(method, 0, 0, "unknown error");
   }
 
   async getMe(): Promise<any> {

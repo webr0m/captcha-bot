@@ -363,85 +363,114 @@ export async function issueCaptcha(env: RedisEnv, api: TelegramApi, chatId: numb
   const userIdNum = Number(userId);
   const now = Math.floor(Date.now() / 1000);
 
-  // Estado común: pendiente + deadline. La tarea "kick" respeta el deadline
-  // para que regenerar el desafío no provoque una expulsión prematura.
+  // Estado común: pendiente + deadline. La tarea de expulsión se programa
+  // SOLO después de enviar el desafío correctamente: si Telegram falla, no
+  // se debe expulsar a alguien que nunca llegó a ver el captcha.
   await rdb.setex(verifyKey(chatIdNum, userIdNum), timeout + 60, "pending");
   await rdb.setex(verifyDeadlineKey(chatIdNum, userIdNum), timeout + 120, String(now + timeout + 5));
-  await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: now + timeout + 5 });
+
+  let kickScheduled = false;
+  const scheduleKick = async (): Promise<void> => {
+    if (kickScheduled) return;
+    kickScheduled = true;
+    try {
+      await addTask(env, { type: "kick", chatId: chatIdNum, param: userIdNum, runAt: now + timeout + 5 });
+    } catch (err) {
+      // El desafío ya se envió; no se debe borrar el estado por un fallo de Redis.
+      console.error("No se pudo programar el kick:", err);
+    }
+  };
+
+  const finish = async (msgBotId: number, isPhoto: boolean): Promise<void> => {
+    await scheduleKick();
+    try {
+      await rememberChallenge(env, chatIdNum, userIdNum, timeout, msgBotId, Number(msg?.message_id ?? 0), isPhoto);
+    } catch (err) {
+      // El usuario puede verificar igualmente (el estado pending ya existe).
+      console.error("No se pudo guardar el mensaje del desafío:", err);
+    }
+  };
 
   const silent = await getSilentMode(env, chatIdNum);
 
-  if (mode === "math") {
-    const challenge = await buildMathChallenge(env, chatIdNum, userIdNum, lang, timeout);
-    await rdb.setex(mathPendingKey(chatIdNum, userIdNum), timeout, "pending");
-    const sent = await api.sendMessage(chatIdNum, challenge.prompt, { parse_mode: "Markdown", reply_markup: challenge.keyboard });
-    await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), false);
-    return;
-  }
-
-  if (mode === "emoji") {
-    const challenge = await buildEmojiChallenge(env, api, chatIdNum, userIdNum, lang, timeout);
-    await rememberChallenge(env, chatIdNum, userIdNum, timeout, challenge.msgBotId, Number(msg?.message_id ?? 0), false);
-    return;
-  }
-
-  if (mode === "qr") {
-    const challenge = await buildQrChallenge(env, api, chatIdNum, userIdNum, lang, timeout);
-    await rdb.setex(qrPendingKey(chatIdNum, userIdNum), timeout, "pending");
-    const mention = mentionMd(String(user?.first_name ?? user?.username ?? "usuario"), userIdNum);
-    const sent = await api.sendPhoto(chatIdNum, challenge.qrUrl, `${mention}\n${challenge.prompt}`, {
-      parse_mode: "Markdown",
-      reply_markup: challenge.keyboard,
-    });
-    await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), true);
-    return;
-  }
-
-  if (mode === "image") {
-    const code = randToken(5).toUpperCase();
-    await rdb.setex(imageAnswerKey(chatIdNum, userIdNum), timeout, code);
-    const url = `https://placehold.co/300x100/png?text=${encodeURIComponent(code)}&font=roboto`;
-    const mention = mentionMd(String(user?.first_name ?? user?.username ?? "usuario"), userIdNum);
-    const caption = `${mention}\n${await autoTranslate(env, lang, "Escribe el texto que aparece en la imagen para verificarte.")}`;
-    const sent = await api.sendPhoto(chatIdNum, url, caption, { parse_mode: "Markdown" });
-    await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), true);
-    return;
-  }
-
-  if (mode === "turnstile") {
-    const verifyUrl = `https://verify.webrom.cc/verify?chat_id=${chatIdNum}&user_id=${userIdNum}`;
-    const buttonText = await autoTranslate(env, lang, "✅ Verificar con Captcha");
-    const text = `${await autoTranslate(env, lang, "🔐 Verifica que no eres un bot, pulsa el botón y completa el captcha en la web.")}`;
-
-    if (silent) {
-      // Modo silencioso: intenta verificar por privado; si el usuario no ha
-      // iniciado el bot, deja un aviso mínimo en el grupo con el enlace.
-      try {
-        const dm = await api.sendMessage(userIdNum, text, {
-          reply_markup: { inline_keyboard: [[{ text: buttonText, url: verifyUrl }]] },
-        });
-        await rememberChallenge(env, chatIdNum, userIdNum, timeout, 0, Number(msg?.message_id ?? 0), false);
-        void dm;
-        return;
-      } catch {
-        // fallback al grupo
-      }
+  try {
+    if (mode === "math") {
+      const challenge = await buildMathChallenge(env, chatIdNum, userIdNum, lang, timeout);
+      await rdb.setex(mathPendingKey(chatIdNum, userIdNum), timeout, "pending");
+      const sent = await api.sendMessage(chatIdNum, challenge.prompt, { parse_mode: "Markdown", reply_markup: challenge.keyboard });
+      await finish(Number((sent as any)?.message_id ?? 0), false);
+      return;
     }
 
-    const mention = mentionMd(String(user?.first_name ?? user?.username ?? "usuario"), userIdNum);
-    const sent = await api.sendMessage(chatIdNum, `${mention} ${text}`, {
-      parse_mode: "Markdown",
-      reply_markup: { inline_keyboard: [[{ text: buttonText, url: verifyUrl }]] },
-    });
-    await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), false);
-    return;
-  }
+    if (mode === "emoji") {
+      const challenge = await buildEmojiChallenge(env, api, chatIdNum, userIdNum, lang, timeout);
+      await finish(challenge.msgBotId, false);
+      return;
+    }
 
-  // mode === "button" (y cualquier modo legado desconocido)
-  const text = `${await autoTranslate(env, lang, "👋 ")}${String(user?.first_name ?? user?.username ?? "usuario")} ${await autoTranslate(env, lang, ", pulsa el botón para verificarte.")}`;
-  const keyboard = { inline_keyboard: [[{ text: await autoTranslate(env, lang, "✅ Verificarme"), callback_data: `simple:${userIdNum}` }]] };
-  const sent = await api.sendMessage(chatIdNum, text, { reply_markup: keyboard });
-  await rememberChallenge(env, chatIdNum, userIdNum, timeout, Number((sent as any)?.message_id ?? 0), Number(msg?.message_id ?? 0), false);
+    if (mode === "qr") {
+      const challenge = await buildQrChallenge(env, api, chatIdNum, userIdNum, lang, timeout);
+      await rdb.setex(qrPendingKey(chatIdNum, userIdNum), timeout, "pending");
+      const mention = mentionMd(String(user?.first_name ?? user?.username ?? "usuario"), userIdNum);
+      const sent = await api.sendPhoto(chatIdNum, challenge.qrUrl, `${mention}\n${challenge.prompt}`, {
+        parse_mode: "Markdown",
+        reply_markup: challenge.keyboard,
+      });
+      await finish(Number((sent as any)?.message_id ?? 0), true);
+      return;
+    }
+
+    if (mode === "image") {
+      const code = randToken(5).toUpperCase();
+      await rdb.setex(imageAnswerKey(chatIdNum, userIdNum), timeout, code);
+      const url = `https://placehold.co/300x100/png?text=${encodeURIComponent(code)}&font=roboto`;
+      const mention = mentionMd(String(user?.first_name ?? user?.username ?? "usuario"), userIdNum);
+      const caption = `${mention}\n${await autoTranslate(env, lang, "Escribe el texto que aparece en la imagen para verificarte.")}`;
+      const sent = await api.sendPhoto(chatIdNum, url, caption, { parse_mode: "Markdown" });
+      await finish(Number((sent as any)?.message_id ?? 0), true);
+      return;
+    }
+
+    if (mode === "turnstile") {
+      const verifyUrl = `https://verify.webrom.cc/verify?chat_id=${chatIdNum}&user_id=${userIdNum}`;
+      const buttonText = await autoTranslate(env, lang, "✅ Verificar con Captcha");
+      const text = `${await autoTranslate(env, lang, "🔐 Verifica que no eres un bot, pulsa el botón y completa el captcha en la web.")}`;
+
+      if (silent) {
+        // Modo silencioso: intenta verificar por privado; si el usuario no ha
+        // iniciado el bot, deja un aviso mínimo en el grupo con el enlace.
+        try {
+          const dm = await api.sendMessage(userIdNum, text, {
+            reply_markup: { inline_keyboard: [[{ text: buttonText, url: verifyUrl }]] },
+          });
+          await finish(0, false);
+          void dm;
+          return;
+        } catch {
+          // fallback al grupo
+        }
+      }
+
+      const mention = mentionMd(String(user?.first_name ?? user?.username ?? "usuario"), userIdNum);
+      const sent = await api.sendMessage(chatIdNum, `${mention} ${text}`, {
+        parse_mode: "Markdown",
+        reply_markup: { inline_keyboard: [[{ text: buttonText, url: verifyUrl }]] },
+      });
+      await finish(Number((sent as any)?.message_id ?? 0), false);
+      return;
+    }
+
+    // mode === "button" (y cualquier modo legado desconocido)
+    const text = `${await autoTranslate(env, lang, "👋 ")}${String(user?.first_name ?? user?.username ?? "usuario")} ${await autoTranslate(env, lang, ", pulsa el botón para verificarte.")}`;
+    const keyboard = { inline_keyboard: [[{ text: await autoTranslate(env, lang, "✅ Verificarme"), callback_data: `simple:${userIdNum}` }]] };
+    const sent = await api.sendMessage(chatIdNum, text, { reply_markup: keyboard });
+    await finish(Number((sent as any)?.message_id ?? 0), false);
+  } catch (err) {
+    // No se pudo enviar el desafío: se limpia el estado y NO se programa kick.
+    try { await clearChallengeState(env, chatIdNum, userIdNum); } catch { /* ignore */ }
+    await rdb.del(verifyKey(chatIdNum, userIdNum), verifyDeadlineKey(chatIdNum, userIdNum)).catch(() => null);
+    throw err;
+  }
 }
 
 // ---------- Verificar éxito / fallo ----------

@@ -80,13 +80,13 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 - [x] Flujo Turnstile real → `✅ Verificado correctamente.` y `verify:* = ok`.
 - [x] Captcha **button** real en grupo: `pending` → callback `simple:<uid>` → `ok`, mensaje editado y claves limpiadas.
 - [x] Tests unitarios: 19/19 (`npm test`), typecheck y dry-run limpios.
-- [ ] `/stats` en grupo como admin y en privado con botón `stats:<gid>`.
-- [ ] Anti-enlace sintético: mensaje con URL ajena → borrado + aviso; URL de `webrom.cc` → permitida.
-- [ ] `/antiflood limit 3` y ráfaga de 4 mensajes → borrado + mute temporal.
-- [ ] `/allowlink <gid> ejemplo.com` → enlace permitido; `/unallowlink` → vuelve a bloquearse.
-- [ ] Join sintético de usuario CAS listado (con `CAS_API_KEY`) → ban; sin clave → fail-open.
-- [ ] Onboarding sintético `my_chat_member` sin permisos → aviso + task `leave` a los 5 min; con permisos → preconfiguración.
-- [ ] Limpieza de claves temporales (`leave_scheduled:*`, `onboard_notice:*`, `flood:*`, `link_warn:*`) tras las pruebas.
+- [x] `/stats` en privado (global) y callback `stats:<gid>` (estadísticas de grupo); el comando en grupo usa el mismo builder.
+- [x] Anti-enlace sintético: URL y dominio sin esquema (`spam.com`) → borrado + aviso; `webrom.cc` y `t.me/Antiubot` → permitidos.
+- [x] `/antiflood limit 3` y ráfaga de 4 mensajes → borrado + mute temporal (`flood_stat=1`, `flood_muted=1`).
+- [x] `/allowlink <gid> example.com` → enlace permitido; `/unallowlink` → vuelve a bloquearse.
+- [x] Join sintético con CAS sin clave → fail-open (sin caché ni sanción); con `CAS_API_KEY` queda pendiente de probar el ban.
+- [x] Onboarding sintético `my_chat_member` sin permisos → aviso + task `leave` a los 5 min; con permisos → cancela salida y preconfigura.
+- [x] Limpieza de claves temporales (`leave_scheduled:*`, `onboard_notice:*`, `flood:*`, `link_warn:*`) y de las stats de prueba.
 - [ ] Join con captcha **math** → respuesta correcta/incorrecta → kick a timeout.
 - [ ] Join con **emoji** → pegar emojis → ✅.
 - [ ] Join con **qr** → callback `qr_answer` → ✅ / fail → intento 2 → kick.

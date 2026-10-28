@@ -342,10 +342,12 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
     return;
   }
 
-  // settings:* / pop:* / mode:set / action:set / action_2:set / lang / langset -> menu de configuracion
+  // settings:* / pop:* / setup:* / mode:set / action:set / action_2:set / lang / langset / langblock_menu -> menu de configuracion
   if (
     data.startsWith("settings:") ||
     data.startsWith("pop:") ||
+    data.startsWith("setup:") ||
+    data.startsWith("langblock_menu:") ||
     data.startsWith("mode:set") ||
     data.startsWith("action_2:set") ||
     data.startsWith("action:set") ||

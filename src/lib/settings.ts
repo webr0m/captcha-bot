@@ -87,6 +87,17 @@ async function getSettingsState(env: EnvWithBot, gid: number): Promise<SettingsS
 
 type EnvWithBot = RedisEnv & { BOT_TOKEN: string };
 
+/** Acceso cacheado o comprobación en vivo (para admins recién ascendidos). */
+export async function hasGroupAccess(env: EnvWithBot, api: TelegramApi, gid: number, userId: number): Promise<boolean> {
+  const rdb = createRedis(env);
+  if ((await rdb.get(`group_access:${gid}:${userId}`)) === "true") return true;
+  if (await captcha.isAdmin(env, api, gid, userId)) {
+    await rdb.set(`group_access:${gid}:${userId}`, "true");
+    return true;
+  }
+  return false;
+}
+
 async function getChatTitle(env: EnvWithBot, chatId: number): Promise<{ title?: string } | null> {
   const api = new TelegramApi(env.BOT_TOKEN);
   const res = await api.getChat(chatId);
@@ -184,8 +195,9 @@ export async function showSettingsMenu(env: EnvWithBot, api: TelegramApi, chatId
   const s = await getSettingsState(env, gid);
   const lang = (await createRedis(env).get(`group:${gid}:lang`)) ?? "es";
   const kb = buildSettingsKeyboard(s, gid);
-  const text = `🔧 *Configuración actual de tu Grupo:* * ${s.groupName} * \n `;
-  await api.editMessageText(chatId, messageId, text, { parse_mode: "Markdown", reply_markup: kb } as any);
+  // Sin parse_mode: los títulos de grupo pueden contener *, _ o ` y romper Markdown.
+  const text = `🔧 Configuración actual de tu grupo: ${s.groupName}`;
+  await api.editMessageText(chatId, messageId, text, { reply_markup: kb } as any);
 }
 
 export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string }, api: TelegramApi, cb: any): Promise<void> {
@@ -256,6 +268,7 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
       delbot: "Permite configurar el borrado automatico de mensajes que envía el bot para mayor limpieza en tu grupo.",
       delsys: "Permite configurar el borrado automatico de mensajes que envía el sistema (usuario se unió al grupo o añadiste a un usuario) para mayor limpieza en tu grupo.",
       admrep: "🆕 Permite enviar un reporte a los admins sobre el usuario que entra, además de poder autorizar, banear o expulsar sin tener que esperar la verificación .",
+      silent: "🤫 En modo silencioso el bot no envía el mensaje de captcha al grupo; el usuario queda restringido y debe verificarse igualmente.",
     };
     const text = texts[popup];
     if (text) {
@@ -317,8 +330,7 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
     const modeCap = m[2];
     const userId = Number(cb.from?.id ?? 0);
     const rdb = createRedis(env);
-    const access = await rdb.get(`group_access:${gid}:${userId}`);
-    if (access !== "true") {
+    if (!(await hasGroupAccess(env, api, gid, userId))) {
       const lang = (await rdb.get(`group:${gid}:lang`)) ?? "es";
       await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ No tienes permiso para este grupo."), true).catch(() => null);
       return;
@@ -337,8 +349,7 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
     const actionCap = m[2];
     const userId = Number(cb.from?.id ?? 0);
     const rdb = createRedis(env);
-    const access = await rdb.get(`group_access:${gid}:${userId}`);
-    if (access !== "true") {
+    if (!(await hasGroupAccess(env, api, gid, userId))) {
       const lang = (await rdb.get(`group:${gid}:lang`)) ?? "es";
       await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ No tienes permiso para este grupo."), true).catch(() => null);
       return;
@@ -357,8 +368,7 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
     const action2Cap = m[2];
     const userId = Number(cb.from?.id ?? 0);
     const rdb = createRedis(env);
-    const access = await rdb.get(`group_access:${gid}:${userId}`);
-    if (access !== "true") {
+    if (!(await hasGroupAccess(env, api, gid, userId))) {
       const lang = (await rdb.get(`group:${gid}:lang`)) ?? "es";
       await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ No tienes permiso para este grupo."), true).catch(() => null);
       return;
@@ -370,16 +380,15 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
     return;
   }
 
-  // setup:(.-):(.-):(<gid>) -> back / timeout / toggle / close
-  m = data.match(/^setup:(.-):(.-):(-?\d+)$/);
+  // setup:<action>:<param>:<gid> -> back / timeout / toggle / close
+  m = data.match(/^setup:([^:]+):([^:]+):(-?\d+)$/);
   if (m) {
     const action = m[1];
     const param = m[2];
     const gid = Number(m[3]);
     const userId = Number(cb.from?.id ?? 0);
     const lang = (await createRedis(env).get(`group:${gid}:lang`)) ?? "es";
-    const access = await createRedis(env).get(`group_access:${gid}:${userId}`);
-    if (access !== "true") {
+    if (!(await hasGroupAccess(env, api, gid, userId))) {
       await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⛔ No tienes permiso para este grupo."), true).catch(() => null);
       return;
     }
@@ -393,7 +402,10 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
         const n = Number(owner);
         if (Number.isFinite(n) && owner !== "all" && !key.startsWith("group_known:tmp:")) groups.push(n);
       }
-      const allowed = groups.filter(async (g) => (await rdb.get(`group_access:${g}:${userId}`)) === "true");
+      const allowed: number[] = [];
+      for (const g of groups) {
+        if (await hasGroupAccess(env, api, g, userId)) allowed.push(g);
+      }
       const kb = { inline_keyboard: allowed.slice(0, 8).map((g) => [{ text: `⚙️ ${g}`, callback_data: `settings:${g}` }]) };
       await api.answerCallbackQuery(cb.id, "⚙️ Elige un grupo para configurar:").catch(() => null);
       await api.sendMessage(Number(cb.message?.chat?.id ?? gid), await autoTranslate(env, lang, "⚙️ Elige un grupo para configurar:"), { reply_markup: kb });
@@ -419,9 +431,14 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
       };
       const key = keyMap[param];
       if (key) {
-        const val = (await createRedis(env).get(key)) === "true";
+        // delbot/delsys están activos por defecto cuando la clave no existe.
+        const raw = await createRedis(env).get(key);
+        const defaultOn = param === "delbot" || param === "delsys";
+        const val = raw === null || raw === undefined ? defaultOn : raw === "true";
         await createRedis(env).set(key, val ? "false" : "true");
         await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, `🧩 Bot: ${val ? "❌ OFF" : "✅ ON"}`)).catch(() => null);
+      } else {
+        await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "❌ Opción desconocida."), true).catch(() => null);
       }
       await showSettingsMenu(env, api, cb.message?.chat?.id ?? gid, cb.message?.message_id ?? 0, gid);
       return;

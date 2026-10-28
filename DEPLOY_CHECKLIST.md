@@ -53,6 +53,8 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 - [x] `/start` en privado → bienvenida + botones (probado vía webhook).
 - [x] `/start config_<gid>` → botón `settings:<gid>` (probado vía webhook).
 - [x] `/config` en privado → lista de grupos (`group_known` / `group_access`).
+- [x] Botones `setup:*` del menú (ON/OFF, ±5s, volver, cerrar) → ya no dan "acción desconocida".
+- [x] Menú de filtro de idiomas (`langblock_menu`) enrutado.
 - [ ] `/start` en grupo como admin → botón para abrir el bot en privado.
 - [ ] Join a grupo con captcha **math** → respuesta correcta/incorrecta → kick a timeout.
 - [ ] Join con **emoji** → pegar emojis → ✅.

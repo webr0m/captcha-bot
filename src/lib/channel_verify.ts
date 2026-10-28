@@ -97,7 +97,7 @@ export async function handleChannelJoinRequest(env: RedisEnv, api: TelegramApi, 
 
 export async function handleStartVerify(env: RedisEnv, api: TelegramApi, msg: any): Promise<void> {
   if (msg?.chat?.type !== "private" || !msg?.text) return;
-  const m = String(msg.text).match(/^\/start\s+verify_(-?\d+)_(%d+)$/);
+  const m = String(msg.text).match(/^\/start\s+verify_(-?\d+)_(\d+)$/);
   if (!m) return;
   const chatId = Number(m[1]);
   const userId = Number(m[2]);

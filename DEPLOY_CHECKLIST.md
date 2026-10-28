@@ -50,6 +50,10 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 - Frontend (verify.webrom.cc/verify) → POST al Worker `/verify` con `cf-turnstile-response`, `chat_id`, `user_id`.
 
 ## 8. Pruebas funcionales
+- [x] `/start` en privado → bienvenida + botones (probado vía webhook).
+- [x] `/start config_<gid>` → botón `settings:<gid>` (probado vía webhook).
+- [x] `/config` en privado → lista de grupos (`group_known` / `group_access`).
+- [ ] `/start` en grupo como admin → botón para abrir el bot en privado.
 - [ ] Join a grupo con captcha **math** → respuesta correcta/incorrecta → kick a timeout.
 - [ ] Join con **emoji** → pegar emojis → ✅.
 - [ ] Join con **qr** → callback `qr_answer` → ✅ / fail → intento 2 → kick.

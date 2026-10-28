@@ -22,8 +22,9 @@ import { handleLangCommand } from "./lang_command";
 import { handleSummaryCallback } from "./config_summary";
 import { handleKnownCommand, handleKnownCallback } from "./known_users";
 import { handleTestMessage } from "./test_message";
-import { handleSaveGroups } from "./save_groups";
+import { handleSaveGroups, trackGroup } from "./save_groups";
 import { handleConfigCommand, handleSettingsCallback } from "./settings";
+import { handleStartCommand } from "./start";
 import { runCleaner } from "./cleaner";
 import { blockIfUnauthorized, handleLanguageCallback } from "./block_lang";
 
@@ -77,6 +78,11 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
   const userId = msg.from.id;
   const chatType = msg.chat.type;
 
+  // Registrar grupo + admins (equivalente a save_groups.lua en cada mensaje).
+  if (chatType === "supergroup" || chatType === "group") {
+    try { await trackGroup(env, api, Number(chatId)); } catch { /* no bloquear el update */ }
+  }
+
   const text = String(msg.text ?? "");
 
   // Mensajes privados: deep-links de verificación (/start verify_...) y validación de código
@@ -90,8 +96,12 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     const expectedChan = lastChanV ? await createRedis(env).get(`chanverify:${Number(lastChanV)}:${userId}:code`) : null;
     if (isStartVerifyChan) { await handleVerifyPublicChannel(env, api, msg); return; }
     if (isStartVerify) { await handleStartVerify(env, api, msg); return; }
-    if (expectedJr) { await handlePrivateCheck(env, api, msg); return; }
-    if (expectedChan) { await handleVerifyPublicChannel(env, api, msg); return; }
+    // /start y /start config_<gid> en privado (no deben tratarse como código de verificación)
+    const privateCmd = (text.match(/^\/([a-z_]+)(?:@\S+)?(?:\s|$)/) ?? [])[1]?.toLowerCase();
+    if (privateCmd === "start") { await handleStartCommand(env, api, msg); return; }
+    // Un comando nunca debe interpretarse como código de verificación.
+    if (expectedJr && !text.startsWith("/")) { await handlePrivateCheck(env, api, msg); return; }
+    if (expectedChan && !text.startsWith("/")) { await handleVerifyPublicChannel(env, api, msg); return; }
   }
 
   // Bloqueo de idiomas no autorizados
@@ -100,6 +110,7 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
   // Comandos (privados y grupos)
   if (text.startsWith("/")) {
     const cmd = (text.match(/^\/([a-z_]+)(?:@\S+)?\s*/) ?? [])[1]?.toLowerCase();
+    if (cmd === "start") { await handleStartCommand(env, api, msg); return; }
     if (cmd === "test") { await handleTestMessage(api, msg); return; }
     if (cmd === "di") { await handleDi(env, api, msg); return; }
     if (cmd === "donate") { await handleDonate(env, api, chatId); return; }

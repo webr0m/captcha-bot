@@ -82,9 +82,9 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 - [ ] Traducciones (es → otros) con cache.
 
 ## 9. Post-deploy
-- Push a GitHub (`webr0m/captcha-bot`).
-- Push a GitLab (pendiente de autorización del CLI).
+- Push a GitHub: [webr0m/captcha-bot](https://github.com/webr0m/captcha-bot) (hecho).
+- Push a GitLab: [ridrogo/captcha-bot-workers](https://gitlab.com/ridrogo/captcha-bot-workers) (hecho, proyecto privado).
 
 ## Notas
-- El grupo principal `-1001054467436` tiene el bot como administrador con `can_delete_messages` y `can_restrict_members`, pero `captcha_enabled` está desactivado.
+- El grupo principal `-1001054467436` tiene el bot como administrador con `can_delete_messages` y `can_restrict_members`, y el captcha activo en modo `turnstile` (timeout por defecto: 60 s).
 - El grupo `-1001206300197` («Autobots spam») tiene el bot solo como miembro: no puede restringir ni borrar mensajes, por lo que el captcha completo debe probarse en un grupo donde sea administrador.

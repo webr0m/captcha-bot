@@ -4,9 +4,9 @@
 - Worker desplegado: https://captcha-bot.ridrogo.workers.dev → `/health` responde `200 OK (redis: PONG)`.
 - Bot: **@Antiubot** (id `822926313`).
 - Webhook de Telegram: `https://captcha-bot.ridrogo.workers.dev/webhook` (0 updates pendientes, `allowed_updates`: `message`, `callback_query`, `chat_join_request`, `my_chat_member`).
-- Secrets cargados: `BOT_TOKEN`, `TURNSTILE_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `WEBHOOK_SECRET`.
-- Opcional: `USERS_LOG_CHAT_ID` (log de actividad) y `CAS_API_KEY` (Combot Anti-Spam); ninguno configurado.
-- CAS: la API devuelve `401` sin `CAS_API_KEY`; el bot queda en fail-open (no banea) hasta configurarla.
+- Secrets cargados: `BOT_TOKEN`, `TURNSTILE_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `WEBHOOK_SECRET`, `CAS_API_KEY`.
+- Opcional: `USERS_LOG_CHAT_ID` (log de actividad); no configurado.
+- CAS: clave configurada; la API autentica correctamente (`200`, usuarios limpios y listados).
 - Webhook registrado con `secret_token` (cabecera obligatoria); sin cabecera o con valor incorrecto → `401`.
 - Redis: Upstash `captcha-bot` (free tier, us-east-1).
 - Turnstile: widget **GBOT** con dominios `webrom.cc` y `verify.webrom.cc`.
@@ -84,7 +84,7 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 - [x] Anti-enlace sintético: URL y dominio sin esquema (`spam.com`) → borrado + aviso; `webrom.cc` y `t.me/Antiubot` → permitidos.
 - [x] `/antiflood limit 3` y ráfaga de 4 mensajes → borrado + mute temporal (`flood_stat=1`, `flood_muted=1`).
 - [x] `/allowlink <gid> example.com` → enlace permitido; `/unallowlink` → vuelve a bloquearse.
-- [x] Join sintético con CAS sin clave → fail-open (sin caché ni sanción); con `CAS_API_KEY` queda pendiente de probar el ban.
+- [x] Join sintético con CAS: usuario listado → detectado, cache `listed:1` y contador CAS; usuario limpio → cache `clean`. Sin ban real por falta de permisos en el grupo de pruebas.
 - [x] Onboarding sintético `my_chat_member` sin permisos → aviso + task `leave` a los 5 min; con permisos → cancela salida y preconfigura.
 - [x] Limpieza de claves temporales (`leave_scheduled:*`, `onboard_notice:*`, `flood:*`, `link_warn:*`) y de las stats de prueba.
 - [ ] Join con captcha **math** → respuesta correcta/incorrecta → kick a timeout.
@@ -105,5 +105,5 @@ curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
 ## Notas
 - El grupo principal `-1001054467436` tiene el bot como administrador con `can_delete_messages` y `can_restrict_members`, y el captcha activo en modo `turnstile` (timeout por defecto: 60 s).
 - Con el nuevo despliegue, CAS, anti-flood y anti-enlaces quedan **ON por defecto** también en el grupo principal (no existían claves previas). Se pueden desactivar con `/cas off`, `/antiflood off` y `/antilink off`.
-- CAS necesita `CAS_API_KEY`; sin ella la API responde `401` y el bot no banea (fail-open). El estado se consulta con `/cas <gid>`.
+- CAS está configurado con `CAS_API_KEY` y autentica correctamente. Si se rota la clave, actualizar el secreto y redesplegar. La clave no se guarda en el repositorio.
 - El grupo `-1001206300197` («Autobots spam») tiene el bot solo como miembro: no puede restringir ni borrar mensajes, por lo que el captcha completo debe probarse en un grupo donde sea administrador. Ahora el onboarding avisará y programará la salida automática a los 5 min si sigue sin permisos.

@@ -52,7 +52,7 @@ wrangler secret put UPSTASH_REDIS_REST_TOKEN
 wrangler secret put DEEPL_AUTH_KEY
 wrangler secret put TURNSTILE_SECRET
 wrangler secret put WEBHOOK_SECRET   # recomendado: 1-256 chars [A-Za-z0-9_-]
-wrangler secret put CAS_API_KEY      # opcional: API key de combot.org; sin ella CAS queda fail-open
+wrangler secret put CAS_API_KEY      # necesaria para activar CAS; sin ella queda fail-open
 
 wrangler deploy                    # deploy a Cloudflare
 ```
@@ -69,7 +69,7 @@ wrangler deploy                    # deploy a Cloudflare
    `my_chat_member` es necesario para el onboarding y la auto-salida. Sin la cabecera `X-Telegram-Bot-Api-Secret-Token` correcta, `/webhook` responde `401`.
 4. La página Turnstile se sirve con `GET /verify`; la ruta pública se define en `wrangler.jsonc` (`verify.<dominio>/*`) y el dominio debe estar autorizado en el widget de Turnstile.
 5. (Opcional) `USERS_LOG_CHAT_ID` para el log de actividad.
-6. (Opcional) `CAS_API_KEY`: se obtiene en [combot.org/u/settings](https://combot.org/u/settings) tras iniciar sesión con Telegram. La API de CAS devuelve `401` sin clave.
+6. `CAS_API_KEY` (necesaria para CAS): se obtiene en [combot.org/u/settings](https://combot.org/u/settings) tras iniciar sesión con Telegram. La API de CAS devuelve `401` sin clave.
 
 ## Seguridad
 
@@ -139,6 +139,6 @@ npm run deploy:dry
 - Moderación automática: **CAS, anti-flood y anti-enlaces** activos por defecto, con comandos por grupo y contadores en `/stats`.
 - Onboarding: **`my_chat_member`** preconfigura el grupo, avisa si faltan permisos y programa salida automática a los 5 min.
 - Tests/CI: **19/19 tests** unitarios, typecheck limpio y dry-run correcto; pipelines de GitHub y GitLab incluidos.
-- **CAS requiere `CAS_API_KEY`** (la API devuelve `401` sin clave). Sin clave, CAS queda en fail-open y el captcha sigue funcionando; el estado se muestra con `/cas`.
+- CAS **configurado y probado** con `CAS_API_KEY` en producción (detección de usuarios listados y caché `listed`/`clean`); sin clave queda en fail-open.
 - Modo nocturno, lockdown, cleaner, broadcast, settings, known_users, donate, lang, block_lang, reportes: **portados**.
 - Documentación de despliegue y pruebas: [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md).

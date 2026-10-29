@@ -56,3 +56,18 @@
 - Sustituir `KEYS` por índices/SCAN y reducir escrituras de metadatos por mensaje para mejorar el coste de Redis.
 - Captchas por imagen y QR generados localmente, y enlaces Turnstile ligados a una sesión impredecible.
 - Zona horaria IANA para el modo nocturno manual: el offset fijo anterior no se ajusta automáticamente al horario de verano.
+
+## Publicación comprobada
+
+- Código: commit `87f9eaa9373b82af30d40c113842b96a9fe589d7`, publicado en `main` de GitHub y GitLab. Se comprobaron ambos refs remotos.
+- Worker al 100%: versión `fdf72730-a489-4107-a918-c669242a2500`.
+- Se conservan el Worker `captcha-bot`, la ruta `verify.webrom.cc/*` y el cron de cada minuto.
+- `GET https://captcha-bot.ridrogo.workers.dev/health`: 200, `OK (redis: PONG)`.
+- Página pública Turnstile: 200 y tipo HTML. Esto comprueba su disponibilidad, no una resolución humana del widget.
+- Webhook sin secreto: 401. Telegram confirmó `message`, `edited_message`, `callback_query`, `my_chat_member` y `chat_join_request`, cero updates pendientes y sin último error registrado en ese momento.
+- La ruta temporal de mantenimiento usada para conservar la URL y actualizar `allowed_updates` se retiró; su comprobación posterior devuelve 404. No se expusieron ni copiaron a Git los secretos de producción.
+- [GitHub Actions](https://github.com/webr0m/captcha-bot/actions/runs/40839715133): completado correctamente.
+- [GitLab CI](https://gitlab.com/ridrogo/captcha-bot-workers/-/pipelines/3002745543): no arrancó ningún job por `ci_quota_exceeded`; no es un resultado de las pruebas. Los mismos controles pasaron localmente y en GitHub.
+- No se enviaron pruebas a usuarios ni grupos reales. Queda pendiente una comprobación visual de `/config` y una entrada de prueba desde un cliente de Telegram.
+
+Referencias de compatibilidad consultadas: [mensajes y miembros nuevos](https://core.telegram.org/bots/api#message), [solicitudes de entrada](https://core.telegram.org/bots/api#chatjoinrequest), [restricciones](https://core.telegram.org/bots/api#restrictchatmember) y [envío a tópicos](https://core.telegram.org/bots/api#sendmessage).

@@ -102,7 +102,7 @@ test("auditoría inicial revisa todos los grupos sin omitir los que siguen a uno
   for (let page = 0; page < 4; page++) {
     state.resetRequestCount();
     const scope = startPerformance(env, "test");
-    const result = await auditKnownGroups(scope.env, TelegramApi.fromEnv(scope.env));
+    const result = await auditKnownGroups(scope.env, TelegramApi.fromEnv(scope.env), { force: true });
     assert.ok(state.requestCount <= 50);
     complete = result.complete;
   }
@@ -120,4 +120,13 @@ test("errores de consulta no se convierten en expulsiones del bot", async (t) =>
   assert.equal(result.unknown, 1);
   assert.equal(state.get("leave_scheduled:-1001"), null);
   assert.equal(state.calls.some((call) => call.method === "leaveChat"), false);
+});
+
+test("la revisión periódica espera cinco minutos y no reescribe índices sin cambios", async (t) => {
+  const state = mockBot(t, { values: { "group_known:-1001": "true", "group:-1001:defaults_v2": "true" }, sets: { "group_admins:v1:-1001": ["7"], "admin_groups:v1:7": ["-1001"] } });
+  await auditKnownGroups(env, api());
+  assert.equal(state.commands.some((cmd) => ["SADD", "SREM"].includes(cmd[0]) && /^(admin_groups|group_admins):v1:/.test(cmd[1])), false);
+  const before = state.calls.length;
+  assert.equal((await auditKnownGroups(env, api())).checked, 0);
+  assert.equal(state.calls.length, before);
 });

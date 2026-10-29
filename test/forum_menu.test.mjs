@@ -53,6 +53,8 @@ test("menú principal breve y secciones con ayuda y vuelta", () => {
   assert.ok(buttons.some((b) => b.callback_data === "topics:-1001"));
   assert.ok(buttons.some((b) => b.callback_data.endsWith(":help")));
   assert.equal(buttons.some((b) => b.callback_data.startsWith("mode:set:")), false);
+  assert.equal(buttons.some((b) => b.callback_data.startsWith("summary:")), false);
+  assert.ok(buttons.some((b) => b.callback_data.startsWith("stats:")));
   for (const section of SECTIONS) {
     const view = buildSettingsView(state, -1001234567890123, section);
     assert.ok(view.text.length < 4096);

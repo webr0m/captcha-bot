@@ -8,7 +8,7 @@
 
 ## Salida automática
 
-La función ya existía al recibir `my_chat_member`. Ahora el cron revisa también los grupos registrados, dos por lote, con un inventario estable y cursor persistente. Posponer el mantenimiento cuando ya se usaron más de 20 llamadas Redis/Telegram deja margen al plan gratuito.
+La función ya existía al recibir `my_chat_member`. Ahora el cron revisa también los grupos registrados, dos por lote cada cinco minutos, con un inventario estable y cursor persistente. Posponer el mantenimiento cuando ya se usaron más de 20 llamadas Redis/Telegram deja margen al plan gratuito. El índice solo escribe diferencias de administradores, sin renovar todas las cachés de autorización en grupos inactivos. Los cambios de permisos recibidos por webhook siguen atendiendo el grupo inmediatamente; el plazo de salida se cuenta desde que se detectan permisos insuficientes.
 
 Se requieren permisos de **borrar mensajes** y **restringir miembros**, además de administración. Si faltan, se programa una salida cinco minutos después y se avisa cuando Telegram permite enviar el mensaje. Mientras está pendiente, el dispatcher no procesa moderación ni emite nuevos desafíos en ese grupo.
 
@@ -22,10 +22,12 @@ El índice no autoriza acciones. Cada fila comprueba al administrador en vivo y 
 
 ## Validación
 
-- **94 pruebas aprobadas**, TypeScript y empaquetado de Wrangler correctos.
+- **95 pruebas aprobadas**, TypeScript y empaquetado de Wrangler correctos.
 - Regresiones nuevas: ON/Turnstile, conservación de OFF y modos explícitos, primera pulsación, Turnstile dentro de 50 llamadas, salida diferida, cancelación, tareas antiguas, reintentos, revisión con cursor y presupuesto, y 12 grupos administrados entre 80 conocidos paginados 5/5/2.
 - Se completó la revisión inicial de un inventario de **41 grupos** mediante lotes en Cloudflare y el cron. Los 19 lotes manuales observaron 37 grupos: 26 listos, 11 con salida programada y cero errores de consulta. Los otros lotes los atendió el cron; los contadores manuales no son un total exhaustivo ni prueban que ya se haya ejecutado una salida.
 - La herramienta temporal de actualización usó una clave aleatoria y caducidad, no devolvió IDs, nombres ni credenciales. El archivo y la ruta se retiran al finalizar.
 - No se probaron sanciones o salidas artificiales sobre grupos reales. Las salidas programadas corresponden a permisos consultados realmente; se ejecutarán solo si siguen faltando al finalizar el plazo.
 
 Referencias: [permisos del administrador](https://core.telegram.org/bots/api#chatmemberadministrator), [leaveChat](https://core.telegram.org/bots/api#leavechat), [límites de Workers](https://developers.cloudflare.com/workers/platform/limits/).
+
+El botón Resumen se retira del menú principal a petición del usuario; Estadísticas y Ayuda permanecen. Los callbacks antiguos siguen siendo compatibles.

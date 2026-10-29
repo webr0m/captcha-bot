@@ -11,7 +11,7 @@ import { addTask } from "./tasks";
 import { hasRequiredAdminRights } from "./access";
 import { DEFAULT_GROUP_SETTINGS } from "./group_defaults";
 import { handleSaveGroups } from "./save_groups";
-import { ADMIN_INDEX_READY } from "./group_registry";
+import { ADMIN_INDEX_READY, adminIndexCommands } from "./group_registry";
 import { ioRequestCount } from "./performance";
 
 type EnvWithBot = RedisEnv & { BOT_TOKEN: string };
@@ -139,10 +139,11 @@ export async function handleMyChatMember(env: EnvWithBot, api: TelegramApi, cm: 
 }
 
 /** Check existing groups too, in small resumable batches that fit Workers Free. */
-export async function auditKnownGroups(env: EnvWithBot, api: TelegramApi): Promise<{ total: number; cursor: number; checked: number; pending: number; ready: number; unknown: number; complete: boolean }> {
+export async function auditKnownGroups(env: EnvWithBot, api: TelegramApi, options: { force?: boolean } = {}): Promise<{ total: number; cursor: number; checked: number; pending: number; ready: number; unknown: number; complete: boolean }> {
   const result = { total: 0, cursor: 0, checked: 0, pending: 0, ready: 0, unknown: 0, complete: false };
   if (ioRequestCount(env) > 20) return result;
   const rdb = createRedis(env);
+  if (!options.force && !(await rdb.setnx("group_audit:v1:interval", "1", 300))) return result;
   const [cursorRaw, inventoryRaw] = await rdb.mget("group_audit:v1:cursor", "group_audit:v1:inventory");
   let cursor = Number(cursorRaw ?? 0);
   let groups: number[] = [];
@@ -170,7 +171,12 @@ export async function auditKnownGroups(env: EnvWithBot, api: TelegramApi): Promi
         const [configured, pending] = await rdb.mget(`group:${gid}:defaults_v2`, `leave_scheduled:${gid}`);
         if (!configured) await preconfigure(env, gid);
         if (pending) await rdb.del(`leave_scheduled:${gid}`);
-        await handleSaveGroups(env, api, { chat: { id: gid, type: "supergroup" } });
+        // Discovery only: no need to rewrite every short-lived authorization
+        // cache while auditing a quiet group. Apply actual membership changes.
+        const admins = await api.getChatAdministrators(gid);
+        const list = Array.isArray(admins) ? admins : admins?.result;
+        if (!Array.isArray(list) || !list.length) throw new Error("Empty administrator list during group audit");
+        await rdb.pipeline(await adminIndexCommands(env, gid, list));
         result.ready++;
       }
     } catch {

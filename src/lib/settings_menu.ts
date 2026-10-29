@@ -36,7 +36,7 @@ export function buildSettingsView(s: SettingsState, gid: number, section: Settin
     rows.push([nav("🧹 Mensajes y avisos", "messages"), nav("🌐 Idioma y filtros", "language")]);
     if (s.isForum) link("🧵 Tópicos · destino del captcha", `topics:${gid}`);
     rows.push([button("🌙 Modo nocturno", `nightmode_status:${gid}`), button("📈 Estadísticas", `stats:${gid}`)]);
-    rows.push([nav("❓ Ayuda", "help"), button("📋 Resumen", `summary:${gid}`)]);
+    rows.push([nav("❓ Ayuda", "help")]);
     rows.push([button("⬅️ Mis grupos", `setup:back:back:${gid}`), button("✖️ Cerrar", `setup:close:close:${gid}`)]);
   } else if (section === "captcha") {
     text = `🔐 Captcha\n\nEstado: ${s.captcha ? "activado" : "desactivado"}\nDesafío: ${MODES[s.mode] ?? s.mode}\nTiempo: ${s.timeout}s\nAl caducar: ${ACTIONS[s.action] ?? s.action}\nMientras verifica: ${ACTIONS_2[s.action2] ?? s.action2}\n\nSelecciona el modo o ajusta una opción. ✅ indica la selección actual.`;

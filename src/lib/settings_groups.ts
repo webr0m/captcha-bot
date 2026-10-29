@@ -14,9 +14,10 @@ export async function showGroupChooser(
   requestedPage = 0,
 ): Promise<void> {
   const rdb = createRedis(env);
-  const indexed = await rdb.get(ADMIN_INDEX_READY) === "1";
+  const [ready, indexedGroups] = await rdb.pipeline([["GET", ADMIN_INDEX_READY], ["SMEMBERS", adminGroupsKey(target.userId)]]);
+  const indexed = ready === "1";
   const keys = indexed
-    ? (await rdb.smembers(adminGroupsKey(target.userId))).map((gid) => `group_known:${gid}`)
+    ? (indexedGroups as string[]).map((gid) => `group_known:${gid}`)
     : await rdb.keys("group_known:*");
   // Remove groups the bot has already left, even if an old index entry remains.
   const alive = indexed && keys.length ? await rdb.mget(...keys) : undefined;

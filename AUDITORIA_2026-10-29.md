@@ -81,3 +81,10 @@ Se reemplaza el recorrido completo por un selector compartido con ocho candidato
 El selector de tópicos también limita la lectura de nombres a los ocho visibles y, si hace falta, al tópico seleccionado. Se conserva la comprobación de tópicos cerrados sin leer todos sus registros.
 
 La regresión nueva con 80 grupos y un presupuesto simulado de 50 subrequests falla antes de la corrección y pasa después. Se recorren las diez páginas sin omitir grupos, se comprueban los accesos y se prueba un foro de 80 tópicos. Total: 62 pruebas aprobadas, typecheck y dry-run correctos. Referencia del límite: [Cloudflare Workers · Subrequests](https://developers.cloudflare.com/workers/platform/limits/#subrequests).
+
+Validación real del arreglo:
+
+- Código `19ab788d363a7766fe2f8da47a48cf5ec34ca85f` publicado en GitHub y GitLab; Worker `9a7f9eec-49c9-4bdc-9952-5da2b07411c9` desplegado al 100%.
+- El usuario repitió `/config` y confirmó que ya responde.
+- Los logs de esa versión registraron una respuesta enviada correctamente en la primera página y una edición correcta al pasar a la segunda, sin excepciones ni errores. El primer flujo terminó en 1815 ms y la segunda página en 862 ms. La telemetría solo incluye página, cantidades y tipo de envío; no registra nombres, texto del usuario ni secretos.
+- Health: 200, Redis PONG. [GitHub CI](https://github.com/webr0m/captcha-bot/actions/runs/40841045231) completado correctamente. GitLab sigue sin poder iniciar sus jobs por cuota de CI agotada.

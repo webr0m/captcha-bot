@@ -147,9 +147,9 @@ async function saveConfig(env: RedisEnv, chatId: number, cfg: Record<string, any
   await createRedis(env).set(configKey(chatId), JSON.stringify(cfg));
 }
 
-export async function checkNightMode(env: RedisEnv, api: TelegramApi): Promise<void> {
+export async function checkNightMode(env: RedisEnv, api: TelegramApi, onlyChatId?: number): Promise<void> {
   const rdb = createRedis(env);
-  const keys = await rdb.keys("nightmode:*");
+  const keys = onlyChatId ? [configKey(onlyChatId)] : await rdb.keys("nightmode:*");
   const nowUtc = Math.floor(Date.now() / 1000);
 
   for (const key of keys) {
@@ -217,25 +217,47 @@ function buildStatusText(cfg: any, active: boolean): string {
 function statusKeyboard(gid: number): any {
   return {
     inline_keyboard: [
-      [{ text: "🔄 Cambiar modo", callback_data: `nightmode_switch:${gid}` }],
+      [{ text: "🌇 Automático por ciudad", callback_data: `nightmode_set_auto:${gid}` }],
+      [{ text: "⏰ Horario manual", callback_data: `nightmode_set_manual:${gid}` }],
+      [{ text: "🔄 Actualizar estado", callback_data: `nightmode_status:${gid}` }, { text: "❓ Ayuda", callback_data: `settings:section:${gid}:help_nightmode` }],
       [{ text: "⬅️ Volver", callback_data: `settings:${gid}` }],
     ],
   };
 }
 
-export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, msg: any): Promise<void> {
+/** Consume only pending private replies, so /config and verification commands keep working. */
+export async function handleNightmodeInput(env: RedisEnv, api: TelegramApi, msg: any): Promise<boolean> {
+  if (msg?.chat?.type !== "private" || !msg.text) return false;
+  const text = String(msg.text);
+  if (text.startsWith("/") && !/^\/cancel(?:@\S+)?\s*$/i.test(text)) return false;
+  const pendingKey = `nightmode_pending:${msg.from?.id ?? 0}`;
+  const pending = await createRedis(env).get(pendingKey);
+  if (!pending) return false;
+  if (text.startsWith("/")) {
+    await createRedis(env).del(pendingKey);
+    await api.sendMessage(Number(msg.chat.id), "✅ Configuración nocturna cancelada. Usa /config para volver.");
+  } else await handleNightmodeCommand(env, api, msg, pending);
+  return true;
+}
+
+export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, msg: any, pendingReply?: string): Promise<void> {
   const rdb = createRedis(env);
   const pendingKey = `nightmode_pending:${msg.from?.id ?? 0}`;
-  const pending = msg?.chat?.type === "private" ? await rdb.get(pendingKey) : null;
+  const pending = pendingReply ?? null;
 
   if (pending) {
     let cfg: any = {};
     try { cfg = JSON.parse(pending); } catch { cfg = {}; }
-    if (!cfg || !cfg.mode || cfg.chat_id === undefined || cfg.chat_id === null) return;
+    if (!cfg || !["auto", "manual"].includes(cfg.mode) || !Number.isSafeInteger(Number(cfg.chat_id)) || Number(cfg.chat_id) >= 0) {
+      await rdb.del(pendingKey);
+      await api.sendMessage(Number(msg.chat.id), "La configuración pendiente caducó. Abre /config otra vez.");
+      return;
+    }
     const chatId = Number(cfg.chat_id);
+    const replyChatId = Number(msg.chat.id);
     if (!(await captcha.isAdmin(env, api, chatId, msg.from?.id ?? 0))) {
       await rdb.del(pendingKey);
-      await api.sendMessage(chatId, "🚫 Solo administradores pueden cambiar esto.");
+      await api.sendMessage(replyChatId, "🚫 Solo administradores pueden cambiar esto.");
       return;
     }
 
@@ -243,7 +265,7 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
       const city = String(msg.text ?? "").trim();
       const coords = await getCoordinates(env, city);
       if (!coords) {
-        await api.sendMessage(chatId, "⚠️ Ciudad no válida. Intenta nuevamente.");
+        await api.sendMessage(replyChatId, "⚠️ Ciudad no válida. Intenta nuevamente o usa /cancel.");
         return;
       }
       const tz = await getTimezoneOffset(coords.lat, coords.lon);
@@ -251,17 +273,16 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
         mode: "auto", city, lat: coords.lat, lon: coords.lon,
         tz_offset: tz?.offset, time: tz?.time,
       });
-      await rdb.set(newStateKey(chatId), "0");
       await rdb.del(pendingKey);
-      await checkNightMode(env, api);
-      await api.sendMessage(chatId, `✅ Modo nocturno automático activado para ${city}.`);
+      await checkNightMode(env, api, chatId);
+      await api.sendMessage(replyChatId, `✅ Modo nocturno automático configurado para ${city}.\nSe aplica a todo el grupo y se revisa cada minuto.`, { reply_markup: statusKeyboard(chatId) });
       return;
     }
 
     if (cfg.mode === "manual") {
       const m = String(msg.text ?? "").match(/^(\d{1,2}:\d{2})\s+(\d{1,2}:\d{2})\s+(.+)$/);
       if (!m || parseTime(m[1]) === null || parseTime(m[2]) === null) {
-        await api.sendMessage(chatId, "❌ Formato incorrecto. Intenta con:\n22:00 06:00 Ciudad");
+        await api.sendMessage(replyChatId, "❌ Formato incorrecto. Intenta con:\n22:00 06:00 Ciudad\nO usa /cancel.");
         return;
       }
       const start = m[1];
@@ -269,22 +290,21 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
       const city = m[3].trim();
       const coords = await getCoordinates(env, city);
       if (!coords) {
-        await api.sendMessage(chatId, "⚠️ Ciudad no válida.");
+        await api.sendMessage(replyChatId, "⚠️ Ciudad no válida. Intenta nuevamente o usa /cancel.");
         return;
       }
       const tz = await getTimezoneOffset(coords.lat, coords.lon);
       if (!tz) {
-        await api.sendMessage(chatId, "⚠️ No se pudo obtener la zona horaria.");
+        await api.sendMessage(replyChatId, "⚠️ No se pudo obtener la zona horaria. Intenta nuevamente o usa /cancel.");
         return;
       }
       await saveConfig(env, chatId, {
         mode: "manual", city, lat: coords.lat, lon: coords.lon,
         tz_offset: tz.offset, start, stop, time: tz.time,
       });
-      await rdb.set(newStateKey(chatId), "0");
       await rdb.del(pendingKey);
-      await checkNightMode(env, api);
-      await api.sendMessage(chatId, `✅ Modo nocturno manual activado:\nDesde ${start} hasta ${stop} en ${city} (GMT ${tz.offset >= 0 ? "+" : ""}${tz.offset})`);
+      await checkNightMode(env, api, chatId);
+      await api.sendMessage(replyChatId, `✅ Modo nocturno manual configurado:\nDesde ${start} hasta ${stop} en ${city} (GMT ${tz.offset >= 0 ? "+" : ""}${tz.offset})\nSe aplica a todo el grupo y se revisa cada minuto.`, { reply_markup: statusKeyboard(chatId) });
       return;
     }
     return;
@@ -323,8 +343,7 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
       mode: "auto", city, lat: coords.lat, lon: coords.lon,
       tz_offset: tz?.offset, time: tz?.time,
     });
-    await rdb.set(newStateKey(chatId), "0");
-    await checkNightMode(env, api);
+    await checkNightMode(env, api, chatId);
     await api.sendMessage(chatId, `✅ Modo nocturno automático activado para ${city}.`);
     return;
   }
@@ -352,8 +371,7 @@ export async function handleNightmodeCommand(env: RedisEnv, api: TelegramApi, ms
       mode: "manual", city, lat: coords.lat, lon: coords.lon,
       tz_offset: tz.offset, start, stop, time: tz.time,
     });
-    await rdb.set(newStateKey(chatId), "0");
-    await checkNightMode(env, api);
+    await checkNightMode(env, api, chatId);
     await api.sendMessage(chatId, `✅ Modo nocturno manual activado:\nDesde ${start} hasta ${stop} en ${city} (GMT ${tz.offset >= 0 ? "+" : ""}${tz.offset})`);
     return;
   }
@@ -387,7 +405,9 @@ export async function handleNightmodeCallback(env: RedisEnv, api: TelegramApi, c
     }
     const dataJson = await rdb.get(configKey(gid));
     if (!dataJson) {
-      await api.answerCallbackQuery(cb.id, "Modo nocturno no configurado.", true).catch(() => null);
+      await api.answerCallbackQuery(cb.id, "🌙 Configura el modo nocturno.").catch(() => null);
+      await api.editMessageText(cb.message?.chat?.id ?? gid, cb.message?.message_id ?? 0,
+        "🌙 Modo nocturno\n\nTodavía no está configurado.\n\n🌇 Automático: cierra al anochecer y abre al amanecer según la ciudad.\n⏰ Manual: elige las horas de cierre y apertura.\n\nSe aplica al grupo completo, incluidos todos sus tópicos. Elige una opción:", { reply_markup: statusKeyboard(gid) });
       return;
     }
     let cfg: any = {};
@@ -427,8 +447,7 @@ export async function handleNightmodeCallback(env: RedisEnv, api: TelegramApi, c
       return;
     }
     await api.answerCallbackQuery(cb.id, "🌙 Configura el Modo Nocturno Automático.").catch(() => null);
-    await rdb.setex(`nightmode_pending:${cb.from?.id ?? 0}`, 86400, JSON.stringify({ mode: "auto", chat_id: gid }));
-    await api.sendMessage(cb.from?.id ?? 0, "🌆 Escribe el nombre de la ciudad para activar modo automático.\nEjemplo: Lima");
+    await promptNightmode(env, api, cb, gid, "auto");
     return;
   }
 
@@ -440,8 +459,32 @@ export async function handleNightmodeCallback(env: RedisEnv, api: TelegramApi, c
       return;
     }
     await api.answerCallbackQuery(cb.id, "🌙 Configura el Modo Nocturno Manual.").catch(() => null);
-    await rdb.setex(`nightmode_pending:${cb.from?.id ?? 0}`, 86400, JSON.stringify({ mode: "manual", chat_id: gid }));
-    await api.sendMessage(cb.from?.id ?? 0, "🕒 Envía la configuración manual en el siguiente formato:\n\n22:00 06:00 Ciudad\n\nEjemplo:\n21:30 07:00 Buenos Aires");
+    await promptNightmode(env, api, cb, gid, "manual");
     return;
   }
+
+  m = data.match(/^nightmode_cancel:(-?\d+)$/);
+  if (m) {
+    const gid = Number(m[1]);
+    if (!(await captcha.isAdmin(env, api, gid, cb.from?.id ?? 0))) {
+      await api.answerCallbackQuery(cb.id, "🚫 Solo administradores pueden cambiar esto.", true);
+      return;
+    }
+    const key = `nightmode_pending:${cb.from?.id ?? 0}`;
+    const raw = await rdb.get(key);
+    try { if (Number(JSON.parse(raw ?? "null")?.chat_id) === gid) await rdb.del(key); } catch { /* invalid pending data */ }
+    await handleNightmodeCallback(env, api, { ...cb, data: `nightmode_status:${gid}` });
+  }
+}
+
+async function promptNightmode(env: RedisEnv, api: TelegramApi, cb: any, gid: number, mode: "auto" | "manual"): Promise<void> {
+  const text = mode === "auto"
+    ? "🌇 Modo nocturno automático\n\nEscribe la ciudad y el país.\nEjemplo: Santiago, Chile\n\nEl grupo cerrará al anochecer y abrirá al amanecer.\nPuedes cancelar con el botón o /cancel."
+    : "⏰ Modo nocturno manual\n\nEscribe la hora de cierre, la hora de apertura y la ciudad.\nEjemplo: 22:00 06:00 Santiago, Chile\n\nEl horario usa el desfase GMT obtenido al configurar; revísalo cuando cambie la hora local.\nPuedes cancelar con el botón o /cancel.";
+  const extra = { reply_markup: { inline_keyboard: [[{ text: "✖️ Cancelar", callback_data: `nightmode_cancel:${gid}` }]] } };
+  // Store only after the prompt was delivered; a failed DM must not leave a hidden conversation.
+  if (cb.message?.chat?.type === "private" && Number(cb.message.chat.id) === Number(cb.from?.id)) {
+    await api.editMessageText(Number(cb.message.chat.id), Number(cb.message.message_id), text, extra);
+  } else await api.sendMessage(Number(cb.from?.id), text, extra);
+  await createRedis(env).setex(`nightmode_pending:${cb.from?.id ?? 0}`, 900, JSON.stringify({ mode, chat_id: gid }));
 }

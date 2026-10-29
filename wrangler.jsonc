@@ -4,6 +4,9 @@
   "compatibility_date": "2025-09-01",
   "main": "src/index.ts",
   "workers_dev": true,
+  "vars": {
+    "PERFORMANCE_SAMPLE_RATE": "0.1"
+  },
   "routes": [
     { "pattern": "verify.webrom.cc/*", "zone_name": "webrom.cc" }
   ],

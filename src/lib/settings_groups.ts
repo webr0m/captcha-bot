@@ -4,7 +4,7 @@ import { TelegramApi } from "./telegram";
 import { hasGroupAccessLive } from "./access";
 import { autoTranslate } from "./translator";
 
-export const GROUPS_PAGE_SIZE = 8;
+export const GROUPS_PAGE_SIZE = 5;
 
 export async function showGroupChooser(
   env: RedisEnv,
@@ -22,7 +22,7 @@ export async function showGroupChooser(
   const page = Math.min(Math.max(0, Number.isSafeInteger(requestedPage) ? requestedPage : 0), pages - 1);
   const candidates = groups.slice(page * GROUPS_PAGE_SIZE, (page + 1) * GROUPS_PAGE_SIZE);
 
-  // Máximo 8 getChatMember y 8 getChat. Las autorizaciones de cambios siguen
+  // Máximo 5 getChatMember y 5 getChat. Las autorizaciones de cambios siguen
   // comprobándose en vivo al abrir o modificar la configuración de cada grupo.
   const rows = (await Promise.all(candidates.map(async (gid) => {
     if (!(await hasGroupAccessLive(env, api, gid, target.userId, { cache: false }))) return null;

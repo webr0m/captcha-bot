@@ -1,28 +1,36 @@
 /**
  * Cliente Redis para Cloudflare Workers.
  * Usa la API REST de Upstash (compatible con Redis) vía fetch.
- * Soportado por el bot: GET, SET, SETEX, DEL, INCR, EXPIRE, SMEMBERS, SISMEMBER, SADD, SREM, KEYS, PING.
+ * Incluye MGET/MSET y pipeline explícito para reducir viajes HTTP.
  */
 
-export interface RedisEnv {
+import { measureIo, type PerformanceEnv } from "./performance";
+
+export interface RedisEnv extends PerformanceEnv {
   UPSTASH_REDIS_REST_URL: string;
   UPSTASH_REDIS_REST_TOKEN: string;
 }
 
-async function upstashCommand(env: RedisEnv, args: Array<string | number>): Promise<any> {
-  const res = await fetch(env.UPSTASH_REDIS_REST_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(args),
-    signal: AbortSignal.timeout(10_000),
+export type RedisCommand = Array<string | number>;
+
+async function upstashRequest(env: RedisEnv, body: RedisCommand | RedisCommand[], pipeline = false): Promise<any> {
+  return measureIo(env, "redis", pipeline ? body.length : 1, async () => {
+    const res = await fetch(env.UPSTASH_REDIS_REST_URL.replace(/\/+$/, "") + (pipeline ? "/pipeline" : ""), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(10_000),
+    });
+    const data: any = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(`Upstash REST error (${res.status}): ${JSON.stringify(data)}`);
+    return data;
   });
-  const data: any = await res.json().catch(() => null);
-  if (!res.ok) {
-    throw new Error(`Upstash REST error (${res.status}): ${JSON.stringify(data)}`);
-  }
+}
+
+function commandResult(data: any): any {
   if (data && typeof data === "object" && !Array.isArray(data)) {
     if (typeof data.error === "string") {
       throw new Error(`Upstash REST error: ${data.error}`);
@@ -30,13 +38,21 @@ async function upstashCommand(env: RedisEnv, args: Array<string | number>): Prom
     if ("result" in data) return data.result;
   }
   if (Array.isArray(data)) return data[0];
-  return data;
+  throw new Error("Invalid Upstash REST response");
+}
+
+async function upstashCommand(env: RedisEnv, args: RedisCommand): Promise<any> {
+  return commandResult(await upstashRequest(env, args));
 }
 
 export interface RedisClient {
   ping(): Promise<string>;
   get(key: string): Promise<string | null>;
+  mget(...keys: string[]): Promise<Array<string | null>>;
   set(key: string, value: string): Promise<void>;
+  mset(values: Record<string, string>): Promise<void>;
+  /** Independent commands, in order. Not atomic; never replay after partial failure. */
+  pipeline(commands: RedisCommand[]): Promise<any[]>;
   setex(key: string, seconds: number, value: string): Promise<void>;
   del(...keys: string[]): Promise<number>;
   incr(key: string): Promise<number>;
@@ -62,8 +78,24 @@ export function createRedis(env: RedisEnv): RedisClient {
       if (value === null || value === undefined) return null;
       return String(value);
     },
+    async mget(...keys) {
+      if (!keys.length) return [];
+      const values = await upstashCommand(env, ["MGET", ...keys]);
+      if (!Array.isArray(values) || values.length !== keys.length) throw new Error("Invalid Upstash MGET response");
+      return values.map((value) => value === null || value === undefined ? null : String(value));
+    },
     async set(key, value) {
       await upstashCommand(env, ["SET", key, value]);
+    },
+    async mset(values) {
+      const entries = Object.entries(values);
+      if (entries.length) await upstashCommand(env, ["MSET", ...entries.flat()]);
+    },
+    async pipeline(commands) {
+      if (!commands.length) return [];
+      const data = await upstashRequest(env, commands, true);
+      if (!Array.isArray(data) || data.length !== commands.length) throw new Error("Invalid Upstash pipeline response");
+      return data.map(commandResult);
     },
     async setex(key, seconds, value) {
       await upstashCommand(env, ["SETEX", key, seconds, value]);

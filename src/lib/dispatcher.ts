@@ -12,7 +12,7 @@ import { autoTranslate } from "./translator";
 import * as captcha from "./captcha";
 import { issueDice, handleDiceCallback } from "./dice";
 import { handleBroadcast } from "./broadcast";
-import { checkNightMode, handleNightmodeCallback, handleNightmodeCommand } from "./nightmode";
+import { checkNightMode, handleNightmodeCallback, handleNightmodeCommand, handleNightmodeInput } from "./nightmode";
 import { handleBotAddedAlert } from "./bot_detector";
 import { handleChannelJoinRequest, handlePrivateCheck, handleStartVerify } from "./channel_verify";
 import { handleVerifyPublicChannel } from "./verifi_public_channel";
@@ -21,7 +21,7 @@ import { handleDonate, handleCryptoCallback } from "./donate";
 import { handleDi } from "./di";
 import { handleLangCommand } from "./lang_command";
 import { handleSummaryCallback } from "./config_summary";
-import { handleKnownCommand, handleKnownCallback, saveUserMeta } from "./known_users";
+import { handleKnownCommand, handleKnownCallback, recordKnownUser } from "./known_users";
 import { handleTestMessage } from "./test_message";
 import { handleSaveGroups, trackGroup } from "./save_groups";
 import { handleConfigCommand, handleSettingsCallback } from "./settings";
@@ -122,14 +122,10 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
   const newMember = msg.new_chat_member;
   const fromUser = msg.from;
   if (newMember && !newMember.is_bot) {
-    await rdb.sadd("known_users:all", String(newMember.id));
-    await rdb.sadd(`known_users:${chatId}`, String(newMember.id));
-    await saveUserMeta(env, newMember);
+    await recordKnownUser(env, chatId, newMember);
   }
   if (fromUser && !fromUser.is_bot) {
-    await rdb.sadd("known_users:all", String(fromUser.id));
-    await rdb.sadd(`known_users:${chatId}`, String(fromUser.id));
-    await saveUserMeta(env, fromUser);
+    await recordKnownUser(env, chatId, fromUser);
   }
 
   // Reporte de entrada (independiente del captcha).
@@ -144,18 +140,21 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     const text = String(msg.text ?? "");
     const isStartVerifyChan = text.startsWith("/start") && /^\/start\s+verify_channel_/.test(text);
     const isStartVerify = text.startsWith("/start") && /^\/start\s+verify_/.test(text);
-    const lastC = await createRedis(env).get(`jr:last_channel:${userId}`);
-    const expectedJr = lastC ? await createRedis(env).get(`jr:${Number(lastC)}:${userId}:code`) : null;
-    const lastChanV = await createRedis(env).get(`chanverify:last:${userId}`);
-    const expectedChan = lastChanV ? await createRedis(env).get(`chanverify:${Number(lastChanV)}:${userId}:code`) : null;
     if (isStartVerifyChan) { await handleVerifyPublicChannel(env, api, msg); return; }
     if (isStartVerify) { await handleStartVerify(env, api, msg); return; }
     // /start y /start config_<gid> en privado (no deben tratarse como código de verificación)
     const privateCmd = (text.match(/^\/([a-z_]+)(?:@\S+)?(?:\s|$)/) ?? [])[1]?.toLowerCase();
     if (privateCmd === "start") { await handleStartCommand(env, api, msg); return; }
     // Un comando nunca debe interpretarse como código de verificación.
-    if (expectedJr && !text.startsWith("/")) { await handlePrivateCheck(env, api, msg); return; }
-    if (expectedChan && !text.startsWith("/")) { await handleVerifyPublicChannel(env, api, msg); return; }
+    if (!text.startsWith("/")) {
+      const [lastC, lastChanV] = await rdb.mget(`jr:last_channel:${userId}`, `chanverify:last:${userId}`);
+      const expectedJr = lastC ? await rdb.get(`jr:${Number(lastC)}:${userId}:code`) : null;
+      if (expectedJr) { await handlePrivateCheck(env, api, msg); return; }
+      const expectedChan = lastChanV ? await rdb.get(`chanverify:${Number(lastChanV)}:${userId}:code`) : null;
+      if (expectedChan) { await handleVerifyPublicChannel(env, api, msg); return; }
+    }
+    // Channel verification keeps priority over the optional night-mode conversation.
+    if (await handleNightmodeInput(env, api, msg)) return;
   }
 
   const stateKey = captcha.verifyKey(chatId, userId);
@@ -285,12 +284,22 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
   const fromId = cb.from?.id;
   const data = cb.data;
   const rdb = createRedis(env);
-  const lang = (await captcha.getGroupLang(env, chatId ?? 0)) || "es";
 
   if (data.startsWith("topics:") || data.startsWith("topic:set:")) {
     await handleTopicCallback(env, api, cb);
     return;
   }
+
+  // These handlers read their own language/configuration; avoid a redundant GET.
+  if (data.startsWith("nightmode_")) {
+    await handleNightmodeCallback(env, api, cb);
+    return;
+  }
+  if (/^(?:settings:|pop:|setup:|langblock_menu:|mode:set|action_2:set|action:set|lang:|langset:)/.test(data)) {
+    await handleSettingsCallback(env, api, cb);
+    return;
+  }
+  const lang = (await captcha.getGroupLang(env, chatId ?? 0)) || "es";
 
   if (/^(?:simple|math_answer|math_regen|qr_answer|qr_regen|dice_answer):/.test(data)) {
     const uid = Number(data.split(":")[1]);
@@ -416,12 +425,6 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
     return;
   }
 
-  // nightmode callbacks
-  if (data.startsWith("nightmode_")) {
-    await handleNightmodeCallback(env, api, cb);
-    return;
-  }
-
   // langblock:<gid>:<code>
   if (data.startsWith("langblock:")) {
     await handleLanguageCallback(env, api, cb);
@@ -465,22 +468,6 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
   // stats:<gid> (estadísticas del grupo)
   if (data.startsWith("stats:")) {
     await handleStatsCallback(env, api, cb);
-    return;
-  }
-
-  // settings:* / pop:* / setup:* / mode:set / action:set / action_2:set / lang / langset / langblock_menu -> menu de configuracion
-  if (
-    data.startsWith("settings:") ||
-    data.startsWith("pop:") ||
-    data.startsWith("setup:") ||
-    data.startsWith("langblock_menu:") ||
-    data.startsWith("mode:set") ||
-    data.startsWith("action_2:set") ||
-    data.startsWith("action:set") ||
-    data.startsWith("lang:") ||
-    data.startsWith("langset:")
-  ) {
-    await handleSettingsCallback(env, api, cb);
     return;
   }
 

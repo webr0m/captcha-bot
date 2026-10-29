@@ -20,22 +20,24 @@ import type { TelegramConnectionEnv } from "./telegram_endpoint";
 
 async function getSettingsState(env: EnvWithBot, gid: number): Promise<SettingsState> {
   const rdb = createRedis(env);
-  const rawTimeout = Number((await rdb.get(`group:${gid}:kick_timeout`)) ?? 60);
+  const [values, info] = await Promise.all([
+    rdb.mget(...["kick_timeout", "captcha_enabled", "captcha_mode", "captcha_action", "adm_report", "captcha_action_2", "delete_bot_messages", "delete_service_messages", "silent_mode", "cas_enabled", "antiflood_enabled", "antilink_enabled"].map((key) => `group:${gid}:${key}`)),
+    getChatTitle(env, gid),
+  ]);
+  const [timeoutRaw, captchaRaw, modeRaw, actionRaw, admRepRaw, action2Raw, delBotRaw, delSysRaw, silentRaw, casRaw, floodRaw, linkRaw] = values;
+  const rawTimeout = Number(timeoutRaw ?? 60);
   const timeout = Number.isFinite(rawTimeout) ? Math.max(5, Math.min(rawTimeout, 3600)) : 60;
-  const captcha = (await rdb.get(`group:${gid}:captcha_enabled`)) === "true";
-  const mode = (await rdb.get(`group:${gid}:captcha_mode`)) ?? "button";
-  const action = (await rdb.get(`group:${gid}:captcha_action`)) ?? "kick";
-  const admRep = (await rdb.get(`group:${gid}:adm_report`)) === "true";
-  const action2 = (await rdb.get(`group:${gid}:captcha_action_2`)) ?? "mute";
-  const delBotRaw = await rdb.get(`group:${gid}:delete_bot_messages`);
+  const captcha = captchaRaw === "true";
+  const mode = modeRaw ?? "button";
+  const action = actionRaw ?? "kick";
+  const admRep = admRepRaw === "true";
+  const action2 = action2Raw ?? "mute";
   const delBot = delBotRaw === undefined || delBotRaw === null || delBotRaw === "true";
-  const delSysRaw = await rdb.get(`group:${gid}:delete_service_messages`);
   const delSys = delSysRaw === undefined || delSysRaw === null || delSysRaw === "true";
-  const silentMode = (await rdb.get(`group:${gid}:silent_mode`)) === "true";
-  const cas = isFeatureEnabled(await rdb.get(`group:${gid}:cas_enabled`));
-  const antiFlood = isFeatureEnabled(await rdb.get(`group:${gid}:antiflood_enabled`));
-  const antiLink = isFeatureEnabled(await rdb.get(`group:${gid}:antilink_enabled`));
-  const info = await getChatTitle(env, gid);
+  const silentMode = silentRaw === "true";
+  const cas = isFeatureEnabled(casRaw);
+  const antiFlood = isFeatureEnabled(floodRaw);
+  const antiLink = isFeatureEnabled(linkRaw);
   const groupName = info?.title ?? `Grupo ${gid}`;
   return { timeout, captcha, mode, action, admRep, action2, delBot, delSys, silentMode, cas, antiFlood, antiLink, groupName, isForum: info?.isForum === true };
 }

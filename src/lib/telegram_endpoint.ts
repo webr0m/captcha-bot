@@ -1,5 +1,6 @@
 /** Configuración de transporte del propietario; nunca procede de comandos del chat. */
-export interface TelegramConnectionEnv {
+import type { PerformanceEnv } from "./performance";
+export interface TelegramConnectionEnv extends PerformanceEnv {
   BOT_TOKEN: string;
   TELEGRAM_API_BASE_URL?: string;
 }

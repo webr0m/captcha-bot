@@ -282,8 +282,9 @@ export async function enforceAntiFlood(env: EnvWithBot, api: TelegramApi, msg: a
   if (!isFeatureEnabled(await rdb.get(`group:${chatId}:antiflood_enabled`).catch(() => null))) return false;
   if (await hasGroupAccess(env, api, chatId, userId)) return false;
 
-  const limit = parseFloodLimit(await rdb.get(`group:${chatId}:antiflood_limit`).catch(() => null));
-  const muteSec = parseFloodMute(await rdb.get(`group:${chatId}:antiflood_mute`).catch(() => null));
+  const [limitRaw, muteRaw] = await rdb.mget(`group:${chatId}:antiflood_limit`, `group:${chatId}:antiflood_mute`).catch(() => [null, null]);
+  const limit = parseFloodLimit(limitRaw);
+  const muteSec = parseFloodMute(muteRaw);
   const floodKey = `flood:${chatId}:${userId}`;
   const count = await rdb.incr(floodKey);
   if (count === 1) await rdb.expire(floodKey, FLOOD_WINDOW_SEC);

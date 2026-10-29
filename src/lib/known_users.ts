@@ -3,7 +3,7 @@
  * Portado desde `bot/modules/known_users.lua` (comandos /known, /groups + callbacks kun:*).
  */
 
-import { createRedis, RedisEnv } from "./redis";
+import { createRedis, RedisEnv, type RedisCommand } from "./redis";
 import { TelegramApi } from "./telegram";
 
 const DEV_USER_ID = 180791241; // MY_DEV_ID
@@ -25,21 +25,32 @@ function isTmpOrAggKey(key: string): boolean {
 interface UserMeta { id: number; name: string; username: string; }
 
 /** Guarda nombre/@usuario para enriquecer /known y /groups. */
+function userMetaCommand(user: any): RedisCommand {
+  const key = `user_meta:${Number(user.id)}`;
+  return ["MSET", key, String(user.first_name ?? ""), `${key}:last`, String(user.last_name ?? ""), `${key}:username`, String(user.username ?? "")];
+}
+
 export async function saveUserMeta(env: RedisEnv, user: any): Promise<void> {
   const uid = Number(user?.id ?? 0);
   if (!uid || user?.is_bot) return;
-  const rdb = createRedis(env);
-  await rdb.set(`user_meta:${uid}`, String(user.first_name ?? ""));
-  await rdb.set(`user_meta:${uid}:last`, String(user.last_name ?? ""));
-  await rdb.set(`user_meta:${uid}:username`, String(user.username ?? ""));
+  await createRedis(env).pipeline([userMetaCommand(user)]);
+}
+
+/** Same persistent keys, one HTTP request instead of five per user/message. */
+export async function recordKnownUser(env: RedisEnv, chatId: number, user: any): Promise<void> {
+  const uid = Number(user?.id ?? 0);
+  if (!uid || user?.is_bot) return;
+  await createRedis(env).pipeline([
+    ["SADD", "known_users:all", String(uid)],
+    ["SADD", `known_users:${chatId}`, String(uid)],
+    userMetaCommand(user),
+  ]);
 }
 
 async function getUserMeta(env: RedisEnv, api: TelegramApi, uid: number): Promise<UserMeta | null> {
   const rdb = createRedis(env);
   const key = `user_meta:${uid}`;
-  const first = await rdb.get(key);
-  const last = await rdb.get(`${key}:last`);
-  const user = await rdb.get(`${key}:username`);
+  const [first, last, user] = await rdb.mget(key, `${key}:last`, `${key}:username`);
   const firstName = first ?? "";
   const lastName = last ?? "";
   const username = user ?? "";

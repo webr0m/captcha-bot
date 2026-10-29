@@ -11,11 +11,12 @@ export interface SettingsState {
   cas: boolean; antiFlood: boolean; antiLink: boolean; isForum: boolean; groupName?: string;
 }
 
-export const SECTIONS = ["home", "captcha", "moderation", "messages", "language", "help", "help_captcha", "help_moderation", "help_topics", "help_troubleshoot"] as const;
+export const SECTIONS = ["home", "captcha", "moderation", "messages", "language", "help", "help_captcha", "help_moderation", "help_topics", "help_nightmode", "help_troubleshoot"] as const;
 export type SettingsSection = typeof SECTIONS[number];
 type Button = { text: string; callback_data: string };
 
 const HELP: Partial<Record<SettingsSection, { title: string; text: string }>> = {
+  help_nightmode: { title: "🌙 Ayuda · Modo nocturno", text: "Abre Modo nocturno desde la configuración del grupo.\n\n🌇 Automático: escribe una ciudad y país; el cierre y la apertura siguen el anochecer y el amanecer.\n\n⏰ Manual: envía las horas y la ciudad, por ejemplo 22:00 06:00 Santiago, Chile. El horario usa el desfase GMT obtenido al configurar: revísalo al cambiar la hora local.\n\nEl bot debe poder restringir miembros. El cron revisa el horario cada minuto. Se cierra todo el grupo, incluidos sus tópicos, y al abrir se restauran los permisos guardados.\n\nPuedes cancelar la entrada con el botón o /cancel. Los comandos /nightmode auto, manual y status siguen disponibles en el grupo." },
   help_captcha: { title: "🔐 Ayuda · Captcha", text: "1. Activa Captcha en su submenú.\n2. Elige el desafío y el tiempo disponible.\n3. Elige Expulsar (puede volver) o Banear (bloqueo permanente).\n\nMientras verifica, puedes borrar sus mensajes o silenciarlo. Para desafíos que se responden escribiendo, se conserva la posibilidad de responder.\n\nTurnstile por privado intenta enviar el enlace por DM; si no puede, lo muestra en el grupo. Los demás modos publican el desafío en el grupo." },
   help_moderation: { title: "🛡️ Ayuda · Moderación", text: "CAS comprueba una lista externa al entrar; si el servicio falla, continúa con el captcha.\n\nAnti-flood limita los mensajes por usuario en todo el grupo: 12 cada 10 s, con mute de 10 min por defecto.\n\nAnti-enlaces elimina enlaces no permitidos, también en mensajes editados. Los administradores están exentos.\n\nComandos en el grupo:\n/antiflood limit 15\n/antiflood mute 10\n/allowlink example.com\n/unallowlink example.com\n/cas on · /antilink on\n\nEn privado, añade el ID del grupo después del comando." },
   help_topics: { title: "🧵 Ayuda · Tópicos", text: "En Tópicos elige el destino de los captchas: Automático, General o un tópico detectado. En automático se usa el hilo de la entrada; si no existe, General.\n\nSi falta un tópico, escribe /topico dentro de él y actualiza el listado. El bot aprende los tópicos cuando recibe mensajes; Telegram no ofrece una lista completa de tópicos.\n\nMantén abierto el tópico elegido. Los mensajes editados y los botones se identifican por su mensaje, por lo que la limpieza funciona dentro del foro.\n\nLa verificación, los filtros, el mute y los bans afectan al supergrupo completo." },
@@ -59,7 +60,7 @@ export function buildSettingsView(s: SettingsState, gid: number, section: Settin
     link("🗣️ Filtro de idiomas", `langblock_menu:${gid}`);
   } else if (section === "help") {
     text = "❓ Ayuda\n\nPara comenzar: da al bot permisos para borrar y restringir, activa Captcha y elige un desafío. En foros, revisa también el destino de los captchas.\n\nElige un tema:";
-    rows.push([nav("🔐 Configurar captcha", "help_captcha")], [nav("🛡️ Moderación y comandos", "help_moderation")], [nav("🧵 Supergrupos con tópicos", "help_topics")], [nav("🔧 Resolver problemas", "help_troubleshoot")]);
+    rows.push([nav("🔐 Configurar captcha", "help_captcha")], [nav("🛡️ Moderación y comandos", "help_moderation")], [nav("🧵 Supergrupos con tópicos", "help_topics")], [nav("🌙 Modo nocturno", "help_nightmode")], [nav("🔧 Resolver problemas", "help_troubleshoot")]);
   } else {
     const help = HELP[section];
     text = help ? `${help.title}\n\n${help.text}` : "❓ Ayuda";

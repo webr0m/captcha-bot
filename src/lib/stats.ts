@@ -52,9 +52,7 @@ export async function bumpStat(env: RedisEnv, chatId: number, stat: StatName, am
 
 async function readStats(env: RedisEnv, chatId: number | "global"): Promise<Record<StatName, number>> {
   const rdb = createRedis(env);
-  const values = await Promise.all(
-    STAT_NAMES.map((stat) => rdb.get(chatId === "global" ? globalKey(stat) : groupKey(chatId, stat))),
-  );
+  const values = await rdb.mget(...STAT_NAMES.map((stat) => chatId === "global" ? globalKey(stat) : groupKey(chatId, stat)));
   const out = {} as Record<StatName, number>;
   STAT_NAMES.forEach((stat, i) => {
     out[stat] = Number(values[i] ?? 0) || 0;

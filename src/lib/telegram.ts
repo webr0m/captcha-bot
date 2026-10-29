@@ -7,6 +7,7 @@
 import type { TelegramOkResponse } from "../types";
 import { topicContext, topicParameters, type TopicContext } from "./forum";
 import { telegramApiBaseUrl, type TelegramConnectionEnv } from "./telegram_endpoint";
+import { measureIo, type PerformanceEnv } from "./performance";
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_ATTEMPTS = 3;
@@ -34,20 +35,24 @@ export class TelegramApi {
   private readonly token: string;
   private readonly topic?: TopicContext;
   private readonly baseUrl: string;
+  private readonly identity: { value?: Promise<any> };
+  private readonly performance: PerformanceEnv;
 
-  constructor(token: string, topic?: TopicContext, baseUrl?: string) {
+  constructor(token: string, topic?: TopicContext, baseUrl?: string, identity = {}, performance: PerformanceEnv = {}) {
     this.token = token;
     this.topic = topic;
     this.baseUrl = telegramApiBaseUrl(baseUrl);
+    this.identity = identity;
+    this.performance = performance;
   }
 
   static fromEnv(env: TelegramConnectionEnv): TelegramApi {
-    return new TelegramApi(env.BOT_TOKEN, undefined, env.TELEGRAM_API_BASE_URL);
+    return new TelegramApi(env.BOT_TOKEN, undefined, env.TELEGRAM_API_BASE_URL, {}, env);
   }
 
   /** Cliente por update: no comparte el tópico entre peticiones concurrentes. */
   forMessage(message: any): TelegramApi {
-    return new TelegramApi(this.token, topicContext(message), this.baseUrl);
+    return new TelegramApi(this.token, topicContext(message), this.baseUrl, this.identity, this.performance);
   }
 
   private async call<T = any>(method: string, body: Record<string, any> = {}): Promise<T> {
@@ -62,13 +67,21 @@ export class TelegramApi {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       let res: Response;
+      let parsed: any = null;
       try {
-        res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: controller.signal,
+        const result = await measureIo(this.performance, "telegram", 1, async () => {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          // Include the response body, not just the time to first headers.
+          const json = await response.json().catch(() => null);
+          return { response, json };
         });
+        res = result.response;
+        parsed = result.json;
       } catch (err) {
         clearTimeout(timer);
         const reason = controller.signal.aborted
@@ -86,7 +99,7 @@ export class TelegramApi {
       }
       clearTimeout(timer);
 
-      const json = (await res.json().catch(() => null)) as (TelegramOkResponse & { result?: T; parameters?: { retry_after?: number } }) | null;
+      const json = parsed as (TelegramOkResponse & { result?: T; parameters?: { retry_after?: number } }) | null;
       if (json?.ok === true) return json.result as T;
 
       const status = Number(res.status) || 0;
@@ -111,7 +124,11 @@ export class TelegramApi {
   }
 
   async getMe(): Promise<any> {
-    return this.call<any>("getMe");
+    // Shared only by this client and its topic clones, never by other tokens/updates.
+    if (!this.identity.value) {
+      this.identity.value = this.call<any>("getMe").catch((error) => { this.identity.value = undefined; throw error; });
+    }
+    return this.identity.value;
   }
 
   async sendMessage(chatId: number, text: string, extra: Record<string, any> = {}): Promise<any> {

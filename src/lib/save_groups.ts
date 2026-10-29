@@ -8,7 +8,7 @@
  * API de Telegram en cada mensaje.
  */
 
-import { createRedis, RedisEnv } from "./redis";
+import { createRedis, RedisEnv, type RedisCommand } from "./redis";
 import { TelegramApi } from "./telegram";
 import { adminCacheKey, ADMIN_CACHE_TTL_SEC } from "./access";
 
@@ -18,6 +18,16 @@ function adminList(admins: any): any[] {
   return Array.isArray(result) ? result : [];
 }
 
+function adminCommands(chatId: number, admins: any[]): RedisCommand[] {
+  const commands: RedisCommand[] = [];
+  for (const admin of admins) {
+    const uid = admin?.user?.id;
+    if (uid === undefined || uid === null) continue;
+    commands.push(["SETEX", adminCacheKey(chatId, Number(uid)), ADMIN_CACHE_TTL_SEC, "true"], ["DEL", `group_access_neg:${chatId}:${uid}`]);
+  }
+  return commands;
+}
+
 export async function handleSaveGroups(env: RedisEnv, api: TelegramApi, msg: any): Promise<void> {
   const chat = msg?.chat;
   if (!chat || (chat.type !== "supergroup" && chat.type !== "group")) return;
@@ -25,30 +35,20 @@ export async function handleSaveGroups(env: RedisEnv, api: TelegramApi, msg: any
   const rdb = createRedis(env);
   await rdb.set(`group_known:${chatId}`, "true");
   const admins = await api.getChatAdministrators(chatId);
-  for (const admin of adminList(admins)) {
-    const uid = admin?.user?.id;
-    if (uid === undefined || uid === null) continue;
-    await rdb.setex(adminCacheKey(chatId, Number(uid)), ADMIN_CACHE_TTL_SEC, "true");
-    await rdb.del(`group_access_neg:${chatId}:${uid}`);
-  }
+  await rdb.pipeline(adminCommands(chatId, adminList(admins)));
 }
 
 /** Mantiene el grupo y sus admins registrados (se llama en cada mensaje de grupo). */
 export async function trackGroup(env: RedisEnv, api: TelegramApi, chatId: number): Promise<void> {
   const rdb = createRedis(env);
-  await rdb.set(`group_known:${chatId}`, "true");
-
-  const refreshed = await rdb.get(`group_access_refresh:${chatId}`);
+  const [, refreshed] = await rdb.pipeline([["SET", `group_known:${chatId}`, "true"], ["GET", `group_access_refresh:${chatId}`]]);
   if (refreshed) return;
 
   const admins = await api.getChatAdministrators(chatId);
   const list = adminList(admins);
   if (!list.length) return; // sin permisos o error: se reintenta en el próximo mensaje
-  for (const admin of list) {
-    const uid = admin?.user?.id;
-    if (uid === undefined || uid === null) continue;
-    await rdb.setex(adminCacheKey(chatId, Number(uid)), ADMIN_CACHE_TTL_SEC, "true");
-    await rdb.del(`group_access_neg:${chatId}:${uid}`);
-  }
+  // Write the refresh marker only after every admin update succeeded. A partial
+  // pipeline failure must be retried on the next message, as before.
+  await rdb.pipeline(adminCommands(chatId, list));
   await rdb.setex(`group_access_refresh:${chatId}`, 3600, "1");
 }

@@ -177,7 +177,7 @@ test("todas las páginas, Volver y el refresco antiguo respetan el límite de su
   const values = Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`group_known:${-1001 - i}`, "true"]));
   const mock = mockBot(t, { values, maxRequests: 50 });
   const seen = new Set();
-  for (let page = 0; page < 10; page++) {
+  for (let page = 0; page < 16; page++) {
     mock.resetRequestCount();
     await handleUpdate(env, api(), { callback_query: privateCallback(`settings:groups:${page}`) });
     assert.ok(mock.requestCount <= 50);
@@ -189,6 +189,18 @@ test("todas las páginas, Volver y el refresco antiguo respetan el límite de su
     mock.resetRequestCount();
     await handleUpdate(env, api(), { callback_query: privateCallback(data) });
     assert.ok(mock.requestCount <= 50);
+  }
+});
+
+test("la lista muestra cinco grupos por página y conserva el último sin omisiones", async (t) => {
+  const values = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`group_known:${-1001 - i}`, "true"]));
+  const mock = mockBot(t, { values });
+  for (const [page, expected] of [[0, 5], [1, 5], [2, 2]]) {
+    await handleUpdate(env, api(), { callback_query: privateCallback(`settings:groups:${page}`) });
+    const view = mock.calls.filter((call) => call.method === "editMessageText").at(-1).body;
+    const groups = view.reply_markup.inline_keyboard.flat().filter((button) => /^settings:-/.test(button.callback_data));
+    assert.equal(groups.length, expected);
+    assert.match(view.text, new RegExp(`Página ${page + 1} de 3`));
   }
 });
 

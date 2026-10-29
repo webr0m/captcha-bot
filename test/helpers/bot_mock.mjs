@@ -21,6 +21,12 @@ export function mockBot(t, options = {}) {
     switch (cmd) {
       case "PING": return "PONG";
       case "GET": return get(key);
+      case "MGET": return [key, ...rest].map(get);
+      case "MSET": {
+        const entries = [key, ...rest];
+        for (let i = 0; i < entries.length; i += 2) { values.set(entries[i], String(entries[i + 1])); expires.delete(entries[i]); }
+        return "OK";
+      }
       case "SET":
         if (rest.includes("NX") && get(key) !== null) return null;
         values.set(key, String(rest[0]));
@@ -51,6 +57,7 @@ export function mockBot(t, options = {}) {
     if (requestCount > (options.maxRequests ?? Infinity)) throw new Error("Too many subrequests by single Worker invocation");
     const url = String(input);
     if (url === env.UPSTASH_REDIS_REST_URL) return Response.json({ result: command(JSON.parse(init.body)) });
+    if (url === `${env.UPSTASH_REDIS_REST_URL}/pipeline`) return Response.json(JSON.parse(init.body).map((args) => ({ result: command(args) })));
     assert.ok(url.startsWith("https://api.telegram.org/bottest-token/"), `Unexpected external request: ${url}`);
     const method = url.split("/").at(-1);
     const body = JSON.parse(init.body ?? "{}");

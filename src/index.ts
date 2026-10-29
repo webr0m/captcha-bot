@@ -18,6 +18,7 @@ import { createRedis } from "./lib/redis";
 import { markVerified } from "./lib/captcha";
 import { handleUsersLog, handleUsersLogCallback } from "./lib/users";
 import { renderVerifyPage, renderInvalidVerifyPage } from "./lib/verify_page";
+import { startPerformance } from "./lib/performance";
 
 export type Env = BotEnv & {
   TURNSTILE_SECRET?: string;
@@ -99,6 +100,9 @@ export default {
         return new Response("Invalid update", { status: 400, headers: TEXT_HEADERS });
       }
       if (update) {
+        const configuration = /^\/config(?:@\S+)?(?:\s|$)/i.test(update.message?.text ?? "") || /^(?:settings:|setup:|nightmode_)/.test(update.callback_query?.data ?? "");
+        const performance = startPerformance(env, configuration ? "configuration" : "telegram_update", request.cf?.colo);
+        env = performance.env;
         const api = TelegramApi.fromEnv(env);
         ctx.waitUntil(
           (async () => {
@@ -110,7 +114,7 @@ export default {
               }
             } catch { /* el log nunca debe bloquear el update */ }
             await handleUpdate(env, api, update);
-          })().catch((err) => console.error("handleUpdate error:", err)),
+          })().catch((err) => console.error("handleUpdate error:", err)).finally(() => performance.finish()),
         );
       }
       return new Response("OK", { status: 200, headers: TEXT_HEADERS });
@@ -216,6 +220,8 @@ export default {
   },
 
   async scheduled(_event: any, env: Env, _ctx: ExecutionContext): Promise<void> {
+    const performance = startPerformance(env, "cron");
+    env = performance.env;
     const api = TelegramApi.fromEnv(env);
     // Procesa cola de tareas (kicks/limpiezas/lockdowns), modo nocturno y limpieza periódica.
     await Promise.allSettled([
@@ -223,5 +229,6 @@ export default {
       checkNightMode(env, api),
       runCleaner(env, api),
     ]);
+    performance.finish();
   },
 };

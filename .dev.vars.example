@@ -10,3 +10,6 @@ WEBHOOK_SECRET=
 CAS_API_KEY=
 USERS_LOG_CHAT_ID=
 GEOCODE_API_KEY=
+# Vacío conserva api.telegram.org. Solo para bot y Bot API ejecutándose juntos:
+# TELEGRAM_API_BASE_URL=http://127.0.0.1:8081
+TELEGRAM_API_BASE_URL=

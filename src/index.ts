@@ -99,7 +99,7 @@ export default {
         return new Response("Invalid update", { status: 400, headers: TEXT_HEADERS });
       }
       if (update) {
-        const api = new TelegramApi(env.BOT_TOKEN);
+        const api = TelegramApi.fromEnv(env);
         ctx.waitUntil(
           (async () => {
             // Log opcional de actividad (solo si se configura USERS_LOG_CHAT_ID).
@@ -199,7 +199,7 @@ export default {
         return new Response("⛔ La verificación expiró o no está activa. Vuelve a entrar al grupo.", { status: 409, headers: TEXT_HEADERS });
       }
 
-      const api = new TelegramApi(env.BOT_TOKEN);
+      const api = TelegramApi.fromEnv(env);
       let username: string | undefined;
       try {
         const info = await api.getChat(userIdNum);
@@ -216,7 +216,7 @@ export default {
   },
 
   async scheduled(_event: any, env: Env, _ctx: ExecutionContext): Promise<void> {
-    const api = new TelegramApi(env.BOT_TOKEN);
+    const api = TelegramApi.fromEnv(env);
     // Procesa cola de tareas (kicks/limpiezas/lockdowns), modo nocturno y limpieza periódica.
     await Promise.allSettled([
       runSweep(env, api),

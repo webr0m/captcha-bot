@@ -16,6 +16,7 @@ import { hasGroupAccessLive } from "./access";
 import { MODES, ACTIONS, ACTIONS_2, SECTIONS, buildSettingsView, type SettingsState, type SettingsSection } from "./settings_menu";
 import { handleStartCommand } from "./start";
 import { showGroupChooser } from "./settings_groups";
+import type { TelegramConnectionEnv } from "./telegram_endpoint";
 
 async function getSettingsState(env: EnvWithBot, gid: number): Promise<SettingsState> {
   const rdb = createRedis(env);
@@ -39,7 +40,7 @@ async function getSettingsState(env: EnvWithBot, gid: number): Promise<SettingsS
   return { timeout, captcha, mode, action, admRep, action2, delBot, delSys, silentMode, cas, antiFlood, antiLink, groupName, isForum: info?.isForum === true };
 }
 
-type EnvWithBot = RedisEnv & { BOT_TOKEN: string };
+type EnvWithBot = RedisEnv & TelegramConnectionEnv;
 
 /** Acceso cacheado o comprobación en vivo (para admins recién ascendidos). */
 export async function hasGroupAccess(env: EnvWithBot, api: TelegramApi, gid: number, userId: number): Promise<boolean> {
@@ -47,7 +48,7 @@ export async function hasGroupAccess(env: EnvWithBot, api: TelegramApi, gid: num
 }
 
 async function getChatTitle(env: EnvWithBot, chatId: number): Promise<{ title?: string; isForum: boolean } | null> {
-  const api = new TelegramApi(env.BOT_TOKEN);
+  const api = TelegramApi.fromEnv(env);
   const res = await api.getChat(chatId);
   const resAny = res as any;
   const result = resAny?.result ?? resAny;

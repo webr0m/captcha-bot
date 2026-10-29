@@ -6,6 +6,7 @@
 
 import type { TelegramOkResponse } from "../types";
 import { topicContext, topicParameters, type TopicContext } from "./forum";
+import { telegramApiBaseUrl, type TelegramConnectionEnv } from "./telegram_endpoint";
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_ATTEMPTS = 3;
@@ -32,22 +33,28 @@ function sleep(ms: number): Promise<void> {
 export class TelegramApi {
   private readonly token: string;
   private readonly topic?: TopicContext;
+  private readonly baseUrl: string;
 
-  constructor(token: string, topic?: TopicContext) {
+  constructor(token: string, topic?: TopicContext, baseUrl?: string) {
     this.token = token;
     this.topic = topic;
+    this.baseUrl = telegramApiBaseUrl(baseUrl);
+  }
+
+  static fromEnv(env: TelegramConnectionEnv): TelegramApi {
+    return new TelegramApi(env.BOT_TOKEN, undefined, env.TELEGRAM_API_BASE_URL);
   }
 
   /** Cliente por update: no comparte el tópico entre peticiones concurrentes. */
   forMessage(message: any): TelegramApi {
-    return new TelegramApi(this.token, topicContext(message));
+    return new TelegramApi(this.token, topicContext(message), this.baseUrl);
   }
 
   private async call<T = any>(method: string, body: Record<string, any> = {}): Promise<T> {
     if (["sendMessage", "sendPhoto", "sendVideo", "sendAnimation", "sendDocument", "sendVoice", "sendAudio", "sendSticker", "sendChatAction"].includes(method)) {
       body = { ...topicParameters(this.topic, body.chat_id), ...body };
     }
-    const url = `https://api.telegram.org/bot${this.token}/${method}`;
+    const url = `${this.baseUrl}/bot${this.token}/${method}`;
     let lastError: TelegramApiError | null = null;
     let waited = 0;
 

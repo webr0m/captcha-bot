@@ -8,6 +8,8 @@ Bot de Telegram anti-spam/captcha migrado de **Lua 5.4 + telegram-bot-lua + copa
 
 Consulta [la auditoría y sus límites](AUDITORIA_2026-10-29.md) para ver las correcciones, la compatibilidad y las mejoras pendientes.
 
+La conexión admite `TELEGRAM_API_BASE_URL` para una Bot API propia. Vacía conserva la API oficial. La ejecución conjunta por localhost está [preparada a nivel de transporte, pendiente de alojamiento compatible](docs/TELEGRAM_API_INTERNA.md); no se ha migrado el bot de producción.
+
 - **Bot:** [@Antiubot](https://t.me/Antiubot)
 - **Repositorios:** [GitHub](https://github.com/webr0m/captcha-bot) · [GitLab](https://gitlab.com/ridrogo/captcha-bot-workers)
 - **Instancia:** https://captcha-bot.ridrogo.workers.dev
@@ -128,7 +130,7 @@ En grupos, `<gid>` se omite y se usa el grupo actual; en privado es obligatorio.
 ## Tests y CI
 
 ```bash
-npm test          # 62 tests de reglas, menús y flujos con APIs simuladas
+npm test          # 67 tests de reglas, menús, flujos y API configurable
 npm run cf-typecheck
 npm run deploy:dry
 ```
@@ -160,7 +162,7 @@ La verificación y las sanciones se aplican al supergrupo completo. Mantén abie
 - Kicks/bans por timeout: **portados** (task queue + cron; ban permanente con `until_date=0`).
 - Moderación automática: **CAS, anti-flood y anti-enlaces** activos por defecto, con comandos por grupo y contadores en `/stats`.
 - Onboarding: **`my_chat_member`** preconfigura el grupo, avisa si faltan permisos y programa salida automática a los 5 min.
-- Validación local de esta revisión: **62/62 tests**, typecheck y dry-run correctos; pipelines de GitHub y GitLab incluidos.
+- Validación local de esta revisión: **67/67 tests**, typecheck y dry-run correctos; pipelines de GitHub y GitLab incluidos.
 - CAS **configurado y probado** con `CAS_API_KEY` en producción (detección de usuarios listados y caché `listed`/`clean`); sin clave queda en fail-open.
 - Modo nocturno, lockdown, cleaner, broadcast, settings, known_users, donate, lang, block_lang, reportes: **portados**.
 - Documentación de despliegue y pruebas: [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md).

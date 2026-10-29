@@ -7,6 +7,7 @@
 
 import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
+import type { TelegramConnectionEnv } from "./telegram_endpoint";
 import { autoTranslate } from "./translator";
 import * as captcha from "./captcha";
 import { issueDice, handleDiceCallback } from "./dice";
@@ -42,7 +43,7 @@ import { handleStatsCommand, handleStatsCallback } from "./stats_commands";
 import { bumpStat } from "./stats";
 import { handleTopicCommand, handleTopicCallback, trackTopic } from "./topics";
 
-export type BotEnv = RedisEnv & { BOT_TOKEN: string; DEEPL_AUTH_KEY?: string; CAS_API_KEY?: string };
+export type BotEnv = RedisEnv & TelegramConnectionEnv & { DEEPL_AUTH_KEY?: string; CAS_API_KEY?: string };
 
 const DEV_USER_ID = 180791241; // MY_DEV_ID
 

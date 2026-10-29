@@ -17,6 +17,7 @@ import { MODES, ACTIONS, ACTIONS_2, SECTIONS, buildSettingsView, type SettingsSt
 import { handleStartCommand } from "./start";
 import { showGroupChooser } from "./settings_groups";
 import type { TelegramConnectionEnv } from "./telegram_endpoint";
+import { DEFAULT_CAPTCHA_MODE, captchaEnabledByDefault } from "./group_defaults";
 
 async function getSettingsState(env: EnvWithBot, gid: number): Promise<SettingsState> {
   const rdb = createRedis(env);
@@ -27,8 +28,8 @@ async function getSettingsState(env: EnvWithBot, gid: number): Promise<SettingsS
   const [timeoutRaw, captchaRaw, modeRaw, actionRaw, admRepRaw, action2Raw, delBotRaw, delSysRaw, silentRaw, casRaw, floodRaw, linkRaw] = values;
   const rawTimeout = Number(timeoutRaw ?? 60);
   const timeout = Number.isFinite(rawTimeout) ? Math.max(5, Math.min(rawTimeout, 3600)) : 60;
-  const captcha = captchaRaw === "true";
-  const mode = modeRaw ?? "button";
+  const captcha = captchaEnabledByDefault(captchaRaw);
+  const mode = modeRaw || DEFAULT_CAPTCHA_MODE;
   const action = actionRaw ?? "kick";
   const admRep = admRepRaw === "true";
   const action2 = action2Raw ?? "mute";
@@ -309,9 +310,9 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
       };
       const key = keyMap[param];
       if (key) {
-        // delbot/delsys/cas/antiflood/antilink están activos por defecto cuando la clave no existe.
+        // Captcha también está activo por defecto cuando no existe la clave.
         const raw = await createRedis(env).get(key);
-        const defaultOn = param === "delbot" || param === "delsys" || param === "cas" || param === "antiflood" || param === "antilink";
+        const defaultOn = param === "captcha" || param === "delbot" || param === "delsys" || param === "cas" || param === "antiflood" || param === "antilink";
         const val = raw === null || raw === undefined ? defaultOn : raw === "true";
         await createRedis(env).set(key, val ? "false" : "true");
         await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, `Opción ${val ? "desactivada" : "activada"}.`)).catch(() => null);

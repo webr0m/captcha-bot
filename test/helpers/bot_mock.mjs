@@ -31,6 +31,7 @@ export function mockBot(t, options = {}) {
         if (rest.includes("NX") && get(key) !== null) return null;
         values.set(key, String(rest[0]));
         expires.delete(key);
+        if (rest.includes("EX")) expires.set(key, Date.now() + Number(rest[rest.indexOf("EX") + 1]) * 1000);
         return "OK";
       case "SETEX": values.set(key, String(rest[1])); expires.set(key, Date.now() + Number(rest[0]) * 1000); return "OK";
       case "DEL": return [key, ...rest].reduce((n, k) => { const had = values.has(k) || sets.has(k); values.delete(k); sets.delete(k); expires.delete(k); return n + Number(had); }, 0);

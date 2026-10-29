@@ -5,6 +5,7 @@
 
 import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
+import { DEFAULT_CAPTCHA_MODE, captchaEnabledByDefault } from "./group_defaults";
 
 export type StatName =
   | "messages"
@@ -78,8 +79,8 @@ export async function buildGroupStatsText(env: RedisEnv, api: TelegramApi, gid: 
     rdb.get(`group:${gid}:antilink_enabled`).catch(() => null),
   ]);
 
-  const captchaOn = captchaRaw === "true";
-  const mode = modeRaw || "button";
+  const captchaOn = captchaEnabledByDefault(captchaRaw);
+  const mode = modeRaw || DEFAULT_CAPTCHA_MODE;
   return [
     "📊 Estadísticas del grupo",
     `🆔 ${gid}`,

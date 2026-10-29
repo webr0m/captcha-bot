@@ -204,6 +204,20 @@ test("la lista muestra cinco grupos por página y conserva el último sin omisio
   }
 });
 
+test("la paginación indexada cuenta solo los grupos administrados: 5/5/2 entre 80 conocidos", async (t) => {
+  const values = Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`group_known:${-1001 - i}`, "true"]));
+  values["admin_index:v1:ready"] = "1";
+  const groups = Array.from({ length: 12 }, (_, i) => String(-1001 - i * 3));
+  const mock = mockBot(t, { values, sets: { "admin_groups:v1:7": groups }, maxRequests: 50 });
+  for (const [page, expected] of [[0, 5], [1, 5], [2, 2]]) {
+    mock.resetRequestCount();
+    await handleUpdate(env, api(), { callback_query: privateCallback(`settings:groups:${page}`) });
+    const view = mock.calls.filter((call) => call.method === "editMessageText").at(-1).body;
+    assert.equal(view.reply_markup.inline_keyboard.flat().filter((button) => /^settings:-/.test(button.callback_data)).length, expected);
+    assert.match(view.text, new RegExp(`Página ${page + 1} de 3`));
+  }
+});
+
 test("una página sin acceso permite continuar y no muestra nombres de grupos ajenos", async (t) => {
   const values = Object.fromEntries(Array.from({ length: 16 }, (_, i) => [`group_known:${-1001 - i}`, "true"]));
   const mock = mockBot(t, { values, admins: [], maxRequests: 50 });

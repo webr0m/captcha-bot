@@ -35,7 +35,7 @@ test("exadministradores no conservan acceso por cachés permanentes o positivas"
 });
 
 test("new_chat_members procesa a todos los miembros y usa el tópico configurado", async (t) => {
-  const mock = mockBot(t, { values: { "group:-1001:captcha_enabled": "true", "group:-1001:captcha_topic": "77" } });
+  const mock = mockBot(t, { values: { "group:-1001:captcha_enabled": "true", "group:-1001:captcha_mode": "button", "group:-1001:captcha_topic": "77" } });
   await handleUpdate(env, api(), { message: message({ new_chat_members: [{ id: 42, first_name: "Uno" }, { id: 43, first_name: "Dos" }], text: undefined }) });
   const challenges = mock.calls.filter((c) => c.method === "sendMessage" && c.body.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data?.startsWith("simple:"));
   assert.equal(challenges.length, 2);

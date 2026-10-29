@@ -3,6 +3,7 @@ import { createRedis, type RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
 import { hasGroupAccessLive } from "./access";
 import { autoTranslate } from "./translator";
+import { ADMIN_INDEX_READY, adminGroupsKey } from "./group_registry";
 
 export const GROUPS_PAGE_SIZE = 5;
 
@@ -13,8 +14,14 @@ export async function showGroupChooser(
   requestedPage = 0,
 ): Promise<void> {
   const rdb = createRedis(env);
-  const keys = await rdb.keys("group_known:*");
+  const indexed = await rdb.get(ADMIN_INDEX_READY) === "1";
+  const keys = indexed
+    ? (await rdb.smembers(adminGroupsKey(target.userId))).map((gid) => `group_known:${gid}`)
+    : await rdb.keys("group_known:*");
+  // Remove groups the bot has already left, even if an old index entry remains.
+  const alive = indexed && keys.length ? await rdb.mget(...keys) : undefined;
   const groups = [...new Set(keys
+    .filter((_, index) => !alive || alive[index] !== null)
     .filter((key) => /^group_known:-[1-9]\d*$/.test(key))
     .map((key) => Number(key.slice("group_known:".length)))
     .filter(Number.isSafeInteger))].sort((a, b) => b - a);

@@ -110,7 +110,7 @@ wrangler deploy                    # deploy a Cloudflare
 | **CAS** | Consulta Combot Anti-Spam al entrar un usuario; si está listado lo banea y borra su mensaje de entrada. Si la API falla o no hay `CAS_API_KEY`, continúa con el captcha (fail-open) | ON |
 | **Anti-flood** | Máximo 12 mensajes por usuario cada 10 s; al superarlo borra el mensaje y aplica mute temporal de 10 min | ON |
 | **Anti-enlaces** | Borra enlaces de usuarios no administradores. Whitelist oficial (`webrom.cc`, `verify.webrom.cc`, canales del bot, repos) + dominios extra por grupo. Al tercer aviso en 1 h aplica mute de 10 min | ON |
-| **Onboarding** | `my_chat_member`: al añadir el bot con permisos preconfigura el grupo y muestra `/config`; sin permisos avisa y sale automáticamente a los 5 min. En canales solo permanece si es administrador | — |
+| **Onboarding** | Protección ON y Turnstile por defecto, conservando ajustes explícitos. Sin permisos para borrar y restringir, avisa y sale a los 5 min si siguen faltando; cancela si se recuperan. También revisa grupos existentes por lotes. En canales solo permanece si es administrador | — |
 
 Los defaults se aplican cuando la clave del grupo no existe todavía. Se pueden desactivar por grupo sin afectar al resto.
 
@@ -161,7 +161,8 @@ La verificación y las sanciones se aplican al supergrupo completo. Mantén abie
 - Pack de seguridad desplegado: `WEBHOOK_SECRET` obligatorio (401 sin cabecera), reintentos/timeout de Telegram, Turnstile con `action`/`cdata`/`hostname` y rate limit por IP (429).
 - Kicks/bans por timeout: **portados** (task queue + cron; ban permanente con `until_date=0`).
 - Moderación automática: **CAS, anti-flood y anti-enlaces** activos por defecto, con comandos por grupo y contadores en `/stats`.
-- Onboarding: **`my_chat_member`** preconfigura el grupo, avisa si faltan permisos y programa salida automática a los 5 min.
+- Onboarding: **`my_chat_member`** preconfigura el grupo con captcha ON y Turnstile si no había una elección guardada. El cron revisa dos grupos existentes por ciclo, con cursor persistente y margen de llamadas para Workers Free. La salida tras cinco minutos vuelve a comprobar los permisos y se cancela si se recuperan; los fallos temporales se reintentan.
+- `/config`: cinco grupos administrados por página. Un índice de administradores, actualizado al registrar grupos y comprobar permisos, evita contar todos los grupos conocidos. La selección y cada cambio siguen verificando los permisos en vivo con Telegram.
 - Validación local de esta revisión: **67/67 tests**, typecheck y dry-run correctos; pipelines de GitHub y GitLab incluidos.
 - CAS **configurado y probado** con `CAS_API_KEY` en producción (detección de usuarios listados y caché `listed`/`clean`); sin clave queda en fail-open.
 - Modo nocturno, lockdown, cleaner, broadcast, settings, known_users, donate, lang, block_lang, reportes: **portados**.

@@ -12,11 +12,17 @@ export function startPerformance<T extends PerformanceEnv>(env: T, kind: string,
   const counter = (): Counter => ({ requests: 0, operations: 0, elapsed_ms: 0, errors: 0 });
   const trace: Trace = { redis: counter(), telegram: counter() };
   return {
-    env: selected ? { ...env, [TRACE]: trace } : env,
+    env: { ...env, [TRACE]: trace },
     finish() {
       if (selected) console.info("bot_performance", { kind, colo: typeof colo === "string" ? colo.slice(0, 8) : undefined, elapsed_ms: Date.now() - started, ...trace });
     },
   };
+}
+
+/** Count known Redis/Telegram HTTP requests to leave room in the Free budget. */
+export function ioRequestCount(env: PerformanceEnv): number {
+  const trace = env[TRACE];
+  return trace ? trace.redis.requests + trace.telegram.requests : 0;
 }
 
 export async function measureIo<T>(env: PerformanceEnv, service: Service, operations: number, run: () => Promise<T>): Promise<T> {

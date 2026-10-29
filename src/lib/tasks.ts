@@ -169,23 +169,24 @@ async function executeTask(env: RedisEnv, api: any, task: Task): Promise<void> {
 
   if (task.type === "leave") {
     // Salida automática si el bot sigue sin los permisos necesarios.
-    let botId = 0;
-    try { botId = Number((await api.getMe())?.id ?? 0); } catch { return; }
-    if (!botId) return;
-    let member: any;
-    try { member = await api.getChatMember(task.chatId, botId); } catch { return; }
+    const rdb = createRedis(env);
+    const scheduled = await rdb.get(`leave_scheduled:${task.chatId}`);
+    if (!scheduled || Number(scheduled) > task.runAt) return;
+    const botId = Number((await api.getMe())?.id ?? 0);
+    if (!botId) throw new Error("Could not determine bot identity for leave task");
+    const member = await api.getChatMember(task.chatId, botId);
     const status = member?.status;
-    let isChannel = false;
-    try {
-      const info = await api.getChat(task.chatId);
-      isChannel = (info as any)?.type === "channel" || (info as any)?.result?.type === "channel";
-    } catch { /* asumimos grupo */ }
+    if (status === "left" || status === "kicked") {
+      await rdb.del(`group_known:${task.chatId}`, `channel_known:${task.chatId}`, `leave_scheduled:${task.chatId}`);
+      return;
+    }
+    const info = await api.getChat(task.chatId);
+    const isChannel = info?.type === "channel" || info?.result?.type === "channel";
     const adminOk = isChannel
       ? status === "administrator" || status === "creator"
       : hasRequiredAdminRights(member);
-    if (adminOk) return;
-    try { await api.leaveChat(task.chatId); } catch { return; }
-    const rdb = createRedis(env);
+    if (adminOk) { await rdb.del(`leave_scheduled:${task.chatId}`); return; }
+    await api.leaveChat(task.chatId);
     await rdb.del(`group_known:${task.chatId}`, `channel_known:${task.chatId}`, `leave_scheduled:${task.chatId}`).catch(() => null);
     return;
   }

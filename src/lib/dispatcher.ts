@@ -114,7 +114,7 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
 
   // Registrar grupo + admins (equivalente a save_groups.lua en cada mensaje).
   if (chatType === "supergroup" || chatType === "group") {
-    try { await trackGroup(env, api, Number(chatId)); } catch { /* no bloquear el update */ }
+    try { if (!(await trackGroup(env, api, Number(chatId)))) return; } catch { /* no bloquear el update */ }
   }
 
   // Registro de usuarios conocidos + metadatos (nombre/@usuario) para /known.

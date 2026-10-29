@@ -19,6 +19,7 @@ import { markVerified } from "./lib/captcha";
 import { handleUsersLog, handleUsersLogCallback } from "./lib/users";
 import { renderVerifyPage, renderInvalidVerifyPage } from "./lib/verify_page";
 import { startPerformance } from "./lib/performance";
+import { auditKnownGroups } from "./lib/onboarding";
 
 export type Env = BotEnv & {
   TURNSTILE_SECRET?: string;
@@ -229,6 +230,7 @@ export default {
       checkNightMode(env, api),
       runCleaner(env, api),
     ]);
+    await auditKnownGroups(env, api).catch(() => console.error("group_audit_failed"));
     performance.finish();
   },
 };

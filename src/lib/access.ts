@@ -5,6 +5,7 @@
 
 import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
+import { adminGroupsKey } from "./group_registry";
 
 const NEGATIVE_TTL_SEC = 60;
 export const ADMIN_CACHE_TTL_SEC = 60;
@@ -22,9 +23,11 @@ async function cacheAccess(env: RedisEnv, gid: number, userId: number, allowed: 
   await createRedis(env).pipeline(allowed ? [
     ["SETEX", adminCacheKey(gid, userId), ADMIN_CACHE_TTL_SEC, "true"],
     ["DEL", `group_access_neg:${gid}:${userId}`],
+    ["SADD", adminGroupsKey(userId), String(gid)],
   ] : [
     ["DEL", adminCacheKey(gid, userId), `group_access:${gid}:${userId}`],
     ["SETEX", `group_access_neg:${gid}:${userId}`, NEGATIVE_TTL_SEC, "1"],
+    ["SREM", adminGroupsKey(userId), String(gid)],
   ]);
 }
 

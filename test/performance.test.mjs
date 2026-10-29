@@ -37,7 +37,7 @@ test("registro de usuario mantiene nombre, alias y conjuntos con una sola petici
   assert.ok(state.sets.get("known_users:7").has("7"));
   assert.ok(state.sets.get("known_users:all").has("7"));
   assert.equal(state.commands.some((cmd) => cmd.slice(1).some((key) => typeof key === "string" && /^(jr:|chanverify:)/.test(key))), false);
-  assert.equal(state.requestCount, 7); // one page row, no hidden verification reads
+  assert.equal(state.requestCount, 8); // one page row + index status, no hidden verification reads
 });
 
 test("una sección de configuración mantiene valores y autorización en seis peticiones", async (t) => {

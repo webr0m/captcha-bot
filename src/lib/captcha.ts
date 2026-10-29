@@ -12,6 +12,7 @@ import { autoTranslate } from "./translator";
 import { addTask } from "./tasks";
 import { bumpStat } from "./stats";
 import { captchaTopicApi } from "./topics";
+import { DEFAULT_CAPTCHA_MODE, captchaEnabledByDefault } from "./group_defaults";
 
 export const FALLBACK_LANG = "es";
 
@@ -77,11 +78,11 @@ function randToken(n: number): string {
 
 export async function getCaptchaEnabled(env: RedisEnv, chatId: number): Promise<boolean> {
   const v = await createRedis(env).get(`group:${chatId}:captcha_enabled`);
-  return v === "true";
+  return captchaEnabledByDefault(v);
 }
 export async function getCaptchaMode(env: RedisEnv, chatId: number): Promise<string> {
   const v = await createRedis(env).get(`group:${chatId}:captcha_mode`);
-  return v || "button";
+  return v || DEFAULT_CAPTCHA_MODE;
 }
 export async function getKickTimeout(env: RedisEnv, chatId: number): Promise<number> {
   const v = await createRedis(env).get(`group:${chatId}:kick_timeout`);

@@ -5,6 +5,7 @@
 
 import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
+import { DEFAULT_CAPTCHA_MODE, captchaEnabledByDefault } from "./group_defaults";
 import { autoTranslate } from "./translator";
 import * as captcha from "./captcha";
 
@@ -22,8 +23,8 @@ export async function handleSummaryCallback(env: RedisEnv, api: TelegramApi, cb:
   }
 
   const timeout = Number((await createRedis(env).get(`group:${gid}:kick_timeout`)) ?? 60);
-  const captchaEnabled = (await createRedis(env).get(`group:${gid}:captcha_enabled`)) === "true";
-  const mode = (await createRedis(env).get(`group:${gid}:captcha_mode`)) ?? "button";
+  const captchaEnabled = captchaEnabledByDefault(await createRedis(env).get(`group:${gid}:captcha_enabled`));
+  const mode = (await createRedis(env).get(`group:${gid}:captcha_mode`)) || DEFAULT_CAPTCHA_MODE;
   const delBot = (await createRedis(env).get(`group:${gid}:delete_bot_messages`) ?? "true") === "true";
   const delSys = (await createRedis(env).get(`group:${gid}:delete_service_messages`) ?? "true") === "true";
 

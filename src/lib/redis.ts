@@ -58,7 +58,7 @@ export interface RedisClient {
   incr(key: string): Promise<number>;
   incrby(key: string, amount: number): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
-  setnx(key: string, value: string): Promise<boolean>;
+  setnx(key: string, value: string, ttlSec?: number): Promise<boolean>;
   compareSet(key: string, expected: string, value: string, seconds: number): Promise<boolean>;
   smembers(key: string): Promise<string[]>;
   sismember(key: string, member: string): Promise<boolean>;
@@ -116,8 +116,8 @@ export function createRedis(env: RedisEnv): RedisClient {
       const result = await upstashCommand(env, ["EXPIRE", key, seconds]);
       return Number(result);
     },
-    async setnx(key, value) {
-      const result = await upstashCommand(env, ["SET", key, value, "NX"]);
+    async setnx(key, value, ttlSec) {
+      const result = await upstashCommand(env, ["SET", key, value, "NX", ...(ttlSec ? ["EX", ttlSec] : [])]);
       return result === "OK";
     },
     async compareSet(key, expected, value, seconds) {

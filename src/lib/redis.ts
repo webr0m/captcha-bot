@@ -17,6 +17,7 @@ async function upstashCommand(env: RedisEnv, args: Array<string | number>): Prom
       "Content-Type": "application/json",
     },
     body: JSON.stringify(args),
+    signal: AbortSignal.timeout(10_000),
   });
   const data: any = await res.json().catch(() => null);
   if (!res.ok) {
@@ -42,6 +43,7 @@ export interface RedisClient {
   incrby(key: string, amount: number): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
   setnx(key: string, value: string): Promise<boolean>;
+  compareSet(key: string, expected: string, value: string, seconds: number): Promise<boolean>;
   smembers(key: string): Promise<string[]>;
   sismember(key: string, member: string): Promise<boolean>;
   sadd(key: string, member: string): Promise<number>;
@@ -85,6 +87,10 @@ export function createRedis(env: RedisEnv): RedisClient {
     async setnx(key, value) {
       const result = await upstashCommand(env, ["SET", key, value, "NX"]);
       return result === "OK";
+    },
+    async compareSet(key, expected, value, seconds) {
+      const script = "if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]); return 1 else return 0 end";
+      return Number(await upstashCommand(env, ["EVAL", script, 1, key, expected, value, seconds])) === 1;
     },
     async smembers(key) {
       const result = await upstashCommand(env, ["SMEMBERS", key]);

@@ -1,5 +1,7 @@
 # ✅ Checklist de puesta en producción — captcha-bot (Cloudflare Workers)
 
+> Revisión del 29 de octubre de 2026: ver [AUDITORIA_2026-10-29.md](AUDITORIA_2026-10-29.md). La lista histórica de comprobaciones reales de abajo describe la versión anterior; la revisión actual añade 57 pruebas locales, menú por secciones, ayuda, nombres de grupos y tópicos.
+
 ## 0. Estado de esta instalación
 - Worker desplegado: https://captcha-bot.ridrogo.workers.dev → `/health` responde `200 OK (redis: PONG)`.
 - Bot: **@Antiubot** (id `822926313`).
@@ -31,7 +33,8 @@ wrangler secret put UPSTASH_REDIS_REST_URL
 wrangler secret put UPSTASH_REDIS_REST_TOKEN
 wrangler secret put DEEPL_AUTH_KEY
 wrangler secret put TURNSTILE_SECRET
-wrangler secret put WEBHOOK_SECRET   # recomendado
+wrangler secret put WEBHOOK_SECRET   # obligatorio
+wrangler secret put GEOCODE_API_KEY  # geocodificación del modo nocturno
 # opcional
 wrangler secret put USERS_LOG_CHAT_ID
 wrangler secret put CAS_API_KEY      # API key de combot.org; sin ella CAS queda fail-open
@@ -53,7 +56,7 @@ wrangler deploy
 curl -X POST "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
   -d "url=https://captcha-bot.<account>.workers.dev/webhook" \
   -d "secret_token=<WEBHOOK_SECRET>" \
-  -d "allowed_updates=[\"message\",\"callback_query\",\"chat_join_request\",\"my_chat_member\"]"
+  -d "allowed_updates=[\"message\",\"edited_message\",\"callback_query\",\"chat_join_request\",\"my_chat_member\"]"
 ```
 
 ## 6. Cron

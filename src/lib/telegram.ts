@@ -5,6 +5,7 @@
  */
 
 import type { TelegramOkResponse } from "../types";
+import { topicContext, topicParameters, type TopicContext } from "./forum";
 
 const REQUEST_TIMEOUT_MS = 12_000;
 const MAX_ATTEMPTS = 3;
@@ -30,12 +31,22 @@ function sleep(ms: number): Promise<void> {
 
 export class TelegramApi {
   private readonly token: string;
+  private readonly topic?: TopicContext;
 
-  constructor(token: string) {
+  constructor(token: string, topic?: TopicContext) {
     this.token = token;
+    this.topic = topic;
+  }
+
+  /** Cliente por update: no comparte el tópico entre peticiones concurrentes. */
+  forMessage(message: any): TelegramApi {
+    return new TelegramApi(this.token, topicContext(message));
   }
 
   private async call<T = any>(method: string, body: Record<string, any> = {}): Promise<T> {
+    if (["sendMessage", "sendPhoto", "sendVideo", "sendAnimation", "sendDocument", "sendVoice", "sendAudio", "sendSticker", "sendChatAction"].includes(method)) {
+      body = { ...topicParameters(this.topic, body.chat_id), ...body };
+    }
     const url = `https://api.telegram.org/bot${this.token}/${method}`;
     let lastError: TelegramApiError | null = null;
     let waited = 0;
@@ -82,7 +93,8 @@ export class TelegramApi {
       if (!retryable || attempt === MAX_ATTEMPTS) break;
 
       let delay = retryAfter > 0 ? retryAfter * 1000 : 500 * attempt;
-      if (waited + delay > MAX_RETRY_WAIT_MS) delay = Math.max(0, MAX_RETRY_WAIT_MS - waited);
+      // No reintentar antes de retry_after si excede el presupuesto de espera.
+      if (waited + delay > MAX_RETRY_WAIT_MS) break;
       if (delay <= 0) break;
       await sleep(delay);
       waited += delay;

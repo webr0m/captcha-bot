@@ -15,6 +15,7 @@ export interface TelegramChat {
   id: number;
   type?: string;
   title?: string;
+  is_forum?: boolean;
 }
 
 export interface TelegramMessage {
@@ -23,6 +24,9 @@ export interface TelegramMessage {
   chat?: TelegramChat;
   from?: TelegramUser;
   new_chat_member?: TelegramUser;
+  new_chat_members?: TelegramUser[];
+  message_thread_id?: number;
+  is_topic_message?: boolean;
   left_chat_member?: TelegramUser;
   text?: string;
   entities?: Array<{ type?: string; offset?: number; length?: number }>;

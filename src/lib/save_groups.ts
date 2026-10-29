@@ -10,6 +10,7 @@
 
 import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
+import { adminCacheKey, ADMIN_CACHE_TTL_SEC } from "./access";
 
 function adminList(admins: any): any[] {
   if (Array.isArray(admins)) return admins;
@@ -27,7 +28,7 @@ export async function handleSaveGroups(env: RedisEnv, api: TelegramApi, msg: any
   for (const admin of adminList(admins)) {
     const uid = admin?.user?.id;
     if (uid === undefined || uid === null) continue;
-    await rdb.set(`group_access:${chatId}:${uid}`, "true");
+    await rdb.setex(adminCacheKey(chatId, Number(uid)), ADMIN_CACHE_TTL_SEC, "true");
     await rdb.del(`group_access_neg:${chatId}:${uid}`);
   }
 }
@@ -46,7 +47,7 @@ export async function trackGroup(env: RedisEnv, api: TelegramApi, chatId: number
   for (const admin of list) {
     const uid = admin?.user?.id;
     if (uid === undefined || uid === null) continue;
-    await rdb.set(`group_access:${chatId}:${uid}`, "true");
+    await rdb.setex(adminCacheKey(chatId, Number(uid)), ADMIN_CACHE_TTL_SEC, "true");
     await rdb.del(`group_access_neg:${chatId}:${uid}`);
   }
   await rdb.setex(`group_access_refresh:${chatId}`, 3600, "1");

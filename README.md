@@ -2,6 +2,12 @@
 
 Bot de Telegram anti-spam/captcha migrado de **Lua 5.4 + telegram-bot-lua + copas** → **Cloudflare Workers**.
 
+## Actualización de octubre de 2026
+
+`/config` muestra nombres de grupos y un menú por secciones con ayuda integrada. En supergrupos con tópicos, las respuestas siguen el hilo del mensaje y el submenú **Tópicos** permite elegir dónde enviar los captchas. Los botones anteriores conservan sus identificadores.
+
+Consulta [la auditoría y sus límites](AUDITORIA_2026-10-29.md) para ver las correcciones, la compatibilidad y las mejoras pendientes.
+
 - **Bot:** [@Antiubot](https://t.me/Antiubot)
 - **Repositorios:** [GitHub](https://github.com/webr0m/captcha-bot) · [GitLab](https://gitlab.com/ridrogo/captcha-bot-workers)
 - **Instancia:** https://captcha-bot.ridrogo.workers.dev
@@ -51,7 +57,8 @@ wrangler secret put UPSTASH_REDIS_REST_URL
 wrangler secret put UPSTASH_REDIS_REST_TOKEN
 wrangler secret put DEEPL_AUTH_KEY
 wrangler secret put TURNSTILE_SECRET
-wrangler secret put WEBHOOK_SECRET   # recomendado: 1-256 chars [A-Za-z0-9_-]
+wrangler secret put WEBHOOK_SECRET   # obligatorio: 1-256 chars [A-Za-z0-9_-]
+wrangler secret put GEOCODE_API_KEY  # modo nocturno por ciudad
 wrangler secret put CAS_API_KEY      # necesaria para activar CAS; sin ella queda fail-open
 
 wrangler deploy                    # deploy a Cloudflare
@@ -64,7 +71,7 @@ wrangler deploy                    # deploy a Cloudflare
    curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
      -d "url=https://<worker>.workers.dev/webhook" \
      -d "secret_token=<WEBHOOK_SECRET>" \
-     -d "allowed_updates=[\"message\",\"callback_query\",\"chat_join_request\",\"my_chat_member\"]"
+     -d "allowed_updates=[\"message\",\"edited_message\",\"callback_query\",\"chat_join_request\",\"my_chat_member\"]"
    ```
    `my_chat_member` es necesario para el onboarding y la auto-salida. Sin la cabecera `X-Telegram-Bot-Api-Secret-Token` correcta, `/webhook` responde `401`.
 4. La página Turnstile se sirve con `GET /verify`; la ruta pública se define en `wrangler.jsonc` (`verify.<dominio>/*`) y el dominio debe estar autorizado en el widget de Turnstile.
@@ -121,13 +128,28 @@ En grupos, `<gid>` se omite y se usa el grupo actual; en privado es obligatorio.
 ## Tests y CI
 
 ```bash
-npm test          # 19 tests unitarios con node:test (módulos puros)
+npm test          # 57 tests de reglas, menús y flujos con APIs simuladas
 npm run cf-typecheck
 npm run deploy:dry
 ```
 
 - GitHub Actions (`.github/workflows/ci.yml`) y GitLab CI (`.gitlab-ci.yml`) ejecutan typecheck, tests y dry-run con Node 24.
-- Los tests cubren reglas de enlaces/whitelist, límites de flood, formato de la cola de tareas (incluido `leave`), caché/parseo de CAS y la página Turnstile.
+- Los tests cubren reglas de enlaces/whitelist, límites de flood, tareas, CAS, Turnstile, accesos, captchas y navegación de menús con tópicos. Se necesita Node 24 para el cargador de TypeScript de los tests de flujos.
+
+## Supergrupos con tópicos
+
+En privado: `/config` → nombre del grupo → **Tópicos · destino del captcha**. Elige Automático, General o uno de los tópicos detectados. Si falta un tópico, envía `/topico` dentro de él y actualiza el menú. Las respuestas a comandos y avisos de moderación permanecen en su hilo.
+
+También se puede configurar desde el grupo:
+
+```text
+/topico                       Estado e instrucciones
+/topico captcha aqui          Usar el tópico actual
+/topico captcha general       Usar General
+/topico captcha off           Volver al destino automático
+```
+
+La verificación y las sanciones se aplican al supergrupo completo. Mantén abierto el tópico elegido. Los desafíos ya emitidos conservan su mensaje original al cambiar el destino.
 
 ## Estado
 
@@ -138,7 +160,7 @@ npm run deploy:dry
 - Kicks/bans por timeout: **portados** (task queue + cron; ban permanente con `until_date=0`).
 - Moderación automática: **CAS, anti-flood y anti-enlaces** activos por defecto, con comandos por grupo y contadores en `/stats`.
 - Onboarding: **`my_chat_member`** preconfigura el grupo, avisa si faltan permisos y programa salida automática a los 5 min.
-- Tests/CI: **19/19 tests** unitarios, typecheck limpio y dry-run correcto; pipelines de GitHub y GitLab incluidos.
+- Validación local de esta revisión: **57/57 tests**, typecheck y dry-run correctos; pipelines de GitHub y GitLab incluidos.
 - CAS **configurado y probado** con `CAS_API_KEY` en producción (detección de usuarios listados y caché `listed`/`clean`); sin clave queda en fail-open.
 - Modo nocturno, lockdown, cleaner, broadcast, settings, known_users, donate, lang, block_lang, reportes: **portados**.
 - Documentación de despliegue y pruebas: [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md).

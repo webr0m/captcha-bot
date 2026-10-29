@@ -27,7 +27,7 @@ export async function handleSummaryCallback(env: RedisEnv, api: TelegramApi, cb:
   const delBot = (await createRedis(env).get(`group:${gid}:delete_bot_messages`) ?? "true") === "true";
   const delSys = (await createRedis(env).get(`group:${gid}:delete_service_messages`) ?? "true") === "true";
 
-  const text = `${await t("📊 Resumen de configuración del grupo:")}\n🆔 ID: \`${gid}\`\n⏱ Tiempo de verificación: \`${timeout}\` seg\n🧩 BOT activado: \`${t(captchaEnabled ? "true" : "false")}\`\n🔢 Modo captcha: \`${mode}\`\n🗑 Borrar mensajes del bot: \`${delBot}\`\n🗑 Borrar mensajes de sistema: \`${delSys}\``;
+  const text = `${await t("📊 Resumen de configuración del grupo:")}\n🆔 ID: \`${gid}\`\n⏱ Tiempo de verificación: \`${timeout}\` seg\n🧩 BOT activado: \`${await t(captchaEnabled ? "true" : "false")}\`\n🔢 Modo captcha: \`${mode}\`\n🗑 Borrar mensajes del bot: \`${delBot}\`\n🗑 Borrar mensajes de sistema: \`${delSys}\``;
 
   await api.answerCallbackQuery(cb.id, "📊 Resumen de configuración.").catch(() => null);
   await api.sendMessage(cb.message?.chat?.id ?? gid, text);

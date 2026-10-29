@@ -40,6 +40,7 @@ import {
 } from "./antiabuse";
 import { handleStatsCommand, handleStatsCallback } from "./stats_commands";
 import { bumpStat } from "./stats";
+import { handleTopicCommand, handleTopicCallback, trackTopic } from "./topics";
 
 export type BotEnv = RedisEnv & { BOT_TOKEN: string; DEEPL_AUTH_KEY?: string; CAS_API_KEY?: string };
 
@@ -47,8 +48,23 @@ const DEV_USER_ID = 180791241; // MY_DEV_ID
 
 export async function handleUpdate(env: BotEnv, api: TelegramApi, update: any): Promise<void> {
   if (!update) return;
+  api = api.forMessage(update.message ?? update.edited_message ?? update.callback_query?.message);
+  const sourceMessage = update.message ?? update.edited_message ?? update.callback_query?.message;
+  if (sourceMessage) await trackTopic(env, sourceMessage);
   if (update.message) {
-    await handleMessage(env, api, update.message);
+    const members = update.message.new_chat_members;
+    if (Array.isArray(members) && members.length) {
+      for (const member of members) {
+        await handleMessage(env, api, { ...update.message, new_chat_members: undefined, new_chat_member: member });
+      }
+    } else {
+      await handleMessage(env, api, update.message);
+    }
+  } else if (update.edited_message) {
+    const msg = update.edited_message;
+    if (msg?.chat?.type === "group" || msg?.chat?.type === "supergroup") {
+      await enforceAntiLink(env, api, msg);
+    }
   } else if (update.callback_query) {
     await handleCallbackQuery(env, api, update.callback_query);
   } else if (update.chat_join_request) {
@@ -141,51 +157,13 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     if (expectedChan && !text.startsWith("/")) { await handleVerifyPublicChannel(env, api, msg); return; }
   }
 
-  // Comandos (privados y grupos)
-  if (text.startsWith("/")) {
-    const cmd = (text.match(/^\/([a-z_]+)(?:@\S+)?\s*/) ?? [])[1]?.toLowerCase();
-    if (cmd === "start") { await handleStartCommand(env, api, msg); return; }
-    if (cmd === "test") { await handleTestMessage(api, msg); return; }
-    if (cmd === "di") { await handleDi(env, api, msg); return; }
-    if (cmd === "donate") { await handleDonate(env, api, chatId); return; }
-    if (cmd === "lang") { await handleLangCommand(env, api, msg); return; }
-    if (cmd === "nightmode") { await handleNightmodeCommand(env, api, msg); return; }
-    if (cmd === "config") { await handleConfigCommand(env, api, msg); return; }
-    if (cmd === "post_verify") { await handleVerifyPublicChannel(env, api, msg); return; }
-    if (cmd === "list_verified") { await handleVerifyPublicChannel(env, api, msg); return; }
-    if (cmd === "known" || cmd === "groups") { await handleKnownCommand(env, api, msg); return; }
-    if (cmd === "stats") { await handleStatsCommand(env, api, msg); return; }
-    if (cmd === "cas") { await handleCasCommand(env, api, msg); return; }
-    if (cmd === "antiflood") { await handleAntiFloodCommand(env, api, msg); return; }
-    if (cmd === "antilink") { await handleAntiLinkCommand(env, api, msg); return; }
-    if (cmd === "allowlink" || cmd === "unallowlink") { await handleAllowLinkCommand(env, api, msg); return; }
-    if (cmd === "save_groups" || cmd === "group_access") { await handleSaveGroups(env, api, msg); return; }
-    if (cmd === "cleaner") { await runCleaner(env, api, msg); return; }
-    if (cmd === "broadcast") {
-      if (Number(chatId) < 0) {
-        if (!(await captcha.isAdmin(env, api, chatId, userId))) {
-          const sent = await api.sendMessage(chatId, "🚫 Solo administradores pueden usar /broadcast.").catch(() => null);
-          const mid = Number((sent as any)?.message_id ?? 0);
-          if (mid) await addTask(env, { type: "del", chatId, param: mid, runAt: Math.floor(Date.now() / 1000) + 5 });
-          return;
-        }
-        if (!msg.reply_to_message) {
-          await api.sendMessage(chatId, "❗ Responde al mensaje que quieras retransmitir con /broadcast");
-          return;
-        }
-        await handleBroadcast(env, api, chatId, msg.reply_to_message);
-        return;
-      }
-    }
-  }
-
   const stateKey = captcha.verifyKey(chatId, userId);
   const state = await rdb.get(stateKey);
 
   // Nuevo miembro en grupo -> lanzar captcha o alertar de bots.
   // Se procesa antes del estado "pending" para que un usuario pendiente no
   // bloquee la verificación de otra persona que acaba de entrar.
-  if (msg.new_chat_member && msg.chat && msg.chat.type === "supergroup") {
+  if (msg.new_chat_member && (chatType === "supergroup" || chatType === "group")) {
     const user = msg.new_chat_member;
     const userIdNum = user.id;
     const myBotId = await getMyBotId(env, api);
@@ -239,12 +217,47 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     return;
   }
 
-  // Moderación automática (solo mensajes normales de grupo, nunca comandos).
+  // Moderación automática (solo mensajes normales de grupo, incluidos comandos).
   // Se aplica también a usuarios ya verificados, que antes se saltaban el final.
   if (!msg.from.is_bot && (chatType === "group" || chatType === "supergroup")) {
     await bumpStat(env, chatId, "messages");
     if (await enforceAntiFlood(env, api, msg)) return;
     if (await enforceAntiLink(env, api, msg)) return;
+  }
+
+  // Comandos (privados y grupos)
+  if (text.startsWith("/")) {
+    const cmd = (text.match(/^\/([a-z_]+)(?:@\S+)?\s*/) ?? [])[1]?.toLowerCase();
+    if (cmd === "start") { await handleStartCommand(env, api, msg); return; }
+    if (cmd === "test") { await handleTestMessage(api, msg); return; }
+    if (cmd === "di") { await handleDi(env, api, msg); return; }
+    if (cmd === "donate") { await handleDonate(env, api, chatId); return; }
+    if (cmd === "lang") { await handleLangCommand(env, api, msg); return; }
+    if (cmd === "nightmode") { await handleNightmodeCommand(env, api, msg); return; }
+    if (cmd === "config") { await handleConfigCommand(env, api, msg); return; }
+    if (cmd === "post_verify") { await handleVerifyPublicChannel(env, api, msg); return; }
+    if (cmd === "list_verified") { await handleVerifyPublicChannel(env, api, msg); return; }
+    if (cmd === "known" || cmd === "groups") { await handleKnownCommand(env, api, msg); return; }
+    if (cmd === "stats") { await handleStatsCommand(env, api, msg); return; }
+    if (cmd === "topico" || cmd === "topic") { await handleTopicCommand(env, api, msg); return; }
+    if (cmd === "cas") { await handleCasCommand(env, api, msg); return; }
+    if (cmd === "antiflood") { await handleAntiFloodCommand(env, api, msg); return; }
+    if (cmd === "antilink") { await handleAntiLinkCommand(env, api, msg); return; }
+    if (cmd === "allowlink" || cmd === "unallowlink") { await handleAllowLinkCommand(env, api, msg); return; }
+    if (cmd === "save_groups" || cmd === "group_access") { await handleSaveGroups(env, api, msg); return; }
+    if (cmd === "cleaner") { await runCleaner(env, api, msg); return; }
+    if (cmd === "broadcast") {
+      if (userId !== DEV_USER_ID || chatType !== "private") {
+        await api.sendMessage(chatId, "🚫 El broadcast global solo está disponible para el propietario en privado.");
+        return;
+      }
+      if (!msg.reply_to_message) {
+        await api.sendMessage(chatId, "❗ Responde al mensaje que quieras retransmitir con /broadcast");
+        return;
+      }
+      await handleBroadcast(env, api, chatId, msg.reply_to_message);
+      return;
+    }
   }
 
   if (state === "ok") return;
@@ -273,6 +286,22 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
   const rdb = createRedis(env);
   const lang = (await captcha.getGroupLang(env, chatId ?? 0)) || "es";
 
+  if (data.startsWith("topics:") || data.startsWith("topic:set:")) {
+    await handleTopicCallback(env, api, cb);
+    return;
+  }
+
+  if (/^(?:simple|math_answer|math_regen|qr_answer|qr_regen|dice_answer):/.test(data)) {
+    const uid = Number(data.split(":")[1]);
+    if (fromId !== uid) { await answerNotForYou(env, api, cb.id, chatId ?? 0); return; }
+    const messageId = Number(await rdb.get(`ID_msgbot:${chatId}:${uid}`) ?? 0);
+    const deadline = Number(await rdb.get(captcha.verifyDeadlineKey(chatId ?? 0, uid)) ?? 0);
+    if (!deadline || deadline < Math.floor(Date.now() / 1000) || (messageId && messageId !== Number(cb.message?.message_id))) {
+      await api.answerCallbackQuery(cb.id, "⏳ Este desafío ya no está disponible.", true).catch(() => null);
+      return;
+    }
+  }
+
   if (data.startsWith("dice_answer:")) {
     await handleDiceCallback(env, api, cb);
     return;
@@ -297,7 +326,8 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
       await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⏳ Este desafío ya no está disponible."), true).catch(() => null);
       return;
     }
-    await captcha.markVerified(env, api, chatId ?? 0, uid, cb.from?.username);
+    const verified = await captcha.markVerified(env, api, chatId ?? 0, uid, cb.from?.username);
+    await api.answerCallbackQuery(cb.id, verified ? "✅ Verificado" : "⏳ Este desafío ya no está disponible.").catch(() => null);
     return;
   }
 
@@ -308,11 +338,18 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
     const token = m[2];
     if (fromId !== uid) { await answerNotForYou(env, api, cb.id, chatId ?? 0); return; }
     const tokenKey = captcha.mathTokenKey(chatId ?? 0, uid, token);
+    if ((await rdb.get(captcha.verifyKey(chatId ?? 0, uid))) !== "pending") {
+      await api.answerCallbackQuery(cb.id, "⏳ Este desafío ya no está disponible.", true).catch(() => null);
+      return;
+    }
     const expected = await rdb.get(captcha.mathAnswerKey(chatId ?? 0, uid));
     const chosen = await rdb.get(tokenKey);
     await rdb.del(tokenKey);
-    if (expected && chosen && String(chosen) === String(expected)) {
+    if (!expected || !chosen) {
+      await api.answerCallbackQuery(cb.id, "⏳ Este desafío ya no está disponible.", true).catch(() => null);
+    } else if (String(chosen) === String(expected)) {
       await captcha.markVerified(env, api, chatId ?? 0, uid, cb.from?.username);
+      await api.answerCallbackQuery(cb.id, "✅ Verificado").catch(() => null);
     } else {
       await captcha.markFailed(env, api, chatId ?? 0, uid, cb.id);
     }
@@ -342,12 +379,17 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
     const choice = m[2];
     if (fromId !== uid) { await answerNotForYou(env, api, cb.id, chatId ?? 0); return; }
     const tokenKey = captcha.qrTokenKey(chatId ?? 0, uid, choice);
+    if ((await rdb.get(captcha.verifyKey(chatId ?? 0, uid))) !== "pending") {
+      await api.answerCallbackQuery(cb.id, "⏳ Este desafío ya no está disponible.", true).catch(() => null);
+      return;
+    }
     const chosen = await rdb.get(tokenKey);
     await rdb.del(tokenKey);
     const expected = await rdb.get(captcha.qrAnswerKey(chatId ?? 0, uid));
     if (expected && chosen) {
       if (String(chosen) === String(expected)) {
         await captcha.markVerified(env, api, chatId ?? 0, uid, cb.from?.username);
+        await api.answerCallbackQuery(cb.id, "✅ Verificado").catch(() => null);
       } else {
         await captcha.markFailed(env, api, chatId ?? 0, uid, cb.id);
       }

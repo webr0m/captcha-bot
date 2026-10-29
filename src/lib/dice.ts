@@ -7,6 +7,7 @@ import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
 import { addTask } from "./tasks";
 import * as captcha from "./captcha";
+import { captchaTopicApi } from "./topics";
 
 const FILE_ID_DICE_SPIN = "CAACAgQAAxkBAAEX-2NooULqxxs0ebCGHqtJYmW1BSq5IwACQAADyPrsEwABS8ZSKgqsrjYE";
 const FILE_IDS: Record<string, string> = {
@@ -39,6 +40,7 @@ async function getDiceSpin(env: RedisEnv, chatId: number): Promise<string | null
 }
 
 export async function issueDice(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, msg: any): Promise<void> {
+  api = await captchaTopicApi(env, api, chatId, msg);
   const timeout = await captcha.getKickTimeout(env, chatId);
   const rdb = createRedis(env);
   const now = Math.floor(Date.now() / 1000);
@@ -63,8 +65,8 @@ export async function issueDice(env: RedisEnv, api: TelegramApi, chatId: number,
 
   // Estado común de verificación: el cron solo expulsa si sigue "pending".
   // La expulsión se programa únicamente después de enviar los mensajes.
-  await rdb.setex(captcha.verifyKey(chatId, userId), timeout + 60, "pending");
-  await rdb.setex(captcha.verifyDeadlineKey(chatId, userId), timeout + 120, String(now + timeout + 5));
+  await rdb.setex(captcha.verifyKey(chatId, userId), 7 * 86400, "pending");
+  await rdb.setex(captcha.verifyDeadlineKey(chatId, userId), 7 * 86400, String(now + timeout + 5));
 
   let sent: any;
   let spinRes: any;
@@ -144,7 +146,7 @@ export async function handleDiceCallback(env: RedisEnv, api: TelegramApi, cb: an
     } catch { /* el usuario pudo salir */ }
 
     await captcha.clearChallengeState(env, chatId, uid);
-    await rdb.del(`ID_msgbot:${chatId}:${uid}`, `ID_msgsys:${chatId}:${uid}`, `ID_msgspin:${chatId}:${uid}`);
+    await rdb.del(captcha.verifyKey(chatId, uid), `ID_msgbot:${chatId}:${uid}`, `ID_msgsys:${chatId}:${uid}`, `ID_msgspin:${chatId}:${uid}`);
     await api.answerCallbackQuery(cb.id, "❌ Incorrecto", true).catch(() => null);
   }
 }

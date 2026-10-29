@@ -84,14 +84,20 @@ export default {
     }
 
     if (request.method === "POST" && path === "/webhook") {
-      // Secreto opcional de webhook (recomendado: setWebhook con secret_token).
-      if (env.WEBHOOK_SECRET) {
+      // Fallar cerrado: nunca aceptar updates sin autenticación.
+      if (!env.WEBHOOK_SECRET?.trim()) {
+        return new Response("Webhook not configured", { status: 503, headers: TEXT_HEADERS });
+      }
+      {
         const header = request.headers.get("X-Telegram-Bot-Api-Secret-Token") ?? "";
         if (!safeEqual(header, env.WEBHOOK_SECRET)) {
           return new Response("Unauthorized", { status: 401, headers: TEXT_HEADERS });
         }
       }
       const update = (await request.json().catch(() => null)) as any;
+      if (!update || !Number.isSafeInteger(update.update_id) || update.update_id < 0) {
+        return new Response("Invalid update", { status: 400, headers: TEXT_HEADERS });
+      }
       if (update) {
         const api = new TelegramApi(env.BOT_TOKEN);
         ctx.waitUntil(
@@ -200,7 +206,9 @@ export default {
         username = (info as any)?.username;
       } catch { /* sin username público */ }
 
-      await markVerified(env, api, chatIdNum, userIdNum, username);
+      if (!(await markVerified(env, api, chatIdNum, userIdNum, username))) {
+        return new Response("⛔ La verificación expiró o ya fue procesada.", { status: 409, headers: TEXT_HEADERS });
+      }
       return new Response("✅ Verificado correctamente.", { status: 200, headers: TEXT_HEADERS });
     }
 

@@ -28,12 +28,12 @@ export function taskToString(task: Task): string {
 
 export function parseTask(member: string): Task | null {
   const parts = String(member).split("|");
-  if (parts.length < 4) return null;
+  if (parts.length !== 4 || parts.slice(1).some((part) => !/^-?\d+$/.test(part))) return null;
   const type = parts[0];
   const chatId = Number(parts[1]);
   const param = Number(parts[2]);
   const runAt = Number(parts[3]);
-  if (!Number.isFinite(chatId) || !Number.isFinite(param) || !Number.isFinite(runAt)) return null;
+  if (!Number.isSafeInteger(chatId) || chatId === 0 || !Number.isSafeInteger(param) || param < 0 || !Number.isSafeInteger(runAt) || runAt < 0) return null;
   if (!TASK_TYPES.includes(type as TaskType)) return null;
   return { type: type as TaskType, chatId, param, runAt };
 }

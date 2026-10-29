@@ -11,6 +11,7 @@ import { TelegramApi } from "./telegram";
 import { autoTranslate } from "./translator";
 import { addTask } from "./tasks";
 import { bumpStat } from "./stats";
+import { captchaTopicApi } from "./topics";
 
 export const FALLBACK_LANG = "es";
 
@@ -226,7 +227,9 @@ export async function muteUser(api: TelegramApi, chatId: number, userId: number,
     can_use_inline_bots: false,
     can_use_chat_reactions: false,
   };
-  const untilDate = Math.floor(Date.now() / 1000) + (typeof timeoutSeconds === "number" ? timeoutSeconds : 60);
+  // Telegram interpreta menos de 30 s como restricción permanente.
+  const duration = Number.isFinite(timeoutSeconds) ? Math.max(60, Math.min(Math.trunc(timeoutSeconds), 86400)) : 60;
+  const untilDate = Math.floor(Date.now() / 1000) + duration;
   await api.restrictChatMember(chatId, userId, permissions, untilDate);
 }
 
@@ -238,7 +241,7 @@ export async function buildMathChallenge(env: RedisEnv, chatId: number, userId: 
   const b = Math.floor(Math.random() * 9) + 1;
   const usePlus = Math.random() < 0.5;
   const op = usePlus ? "+" : "-";
-  const result = usePlus ? a + b : Math.abs(a - b);
+  const result = usePlus ? a + b : a - b;
   const opEmoji = usePlus ? "➕" : "➖";
   await rdb.setex(mathAnswerKey(chatId, userId), timeout, String(result));
 
@@ -249,7 +252,7 @@ export async function buildMathChallenge(env: RedisEnv, chatId: number, userId: 
   while (options.length < 4) {
     const d = result + Math.floor(Math.random() * 11) - 5;
     const ds = String(d);
-    if (d >= 0 && !seen.has(ds)) { seen.add(ds); options.push(d); }
+    if (!seen.has(ds)) { seen.add(ds); options.push(d); }
   }
   for (let i = options.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -356,6 +359,7 @@ async function rememberChallenge(
 }
 
 export async function issueCaptcha(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, user: any, msg: any): Promise<void> {
+  api = await captchaTopicApi(env, api, chatId, msg);
   const mode = await getCaptchaMode(env, chatId);
   const lang = await getGroupLang(env, chatId);
   const timeout = await getKickTimeout(env, chatId);
@@ -367,8 +371,8 @@ export async function issueCaptcha(env: RedisEnv, api: TelegramApi, chatId: numb
   // Estado común: pendiente + deadline. La tarea de expulsión se programa
   // SOLO después de enviar el desafío correctamente: si Telegram falla, no
   // se debe expulsar a alguien que nunca llegó a ver el captcha.
-  await rdb.setex(verifyKey(chatIdNum, userIdNum), timeout + 60, "pending");
-  await rdb.setex(verifyDeadlineKey(chatIdNum, userIdNum), timeout + 120, String(now + timeout + 5));
+  await rdb.setex(verifyKey(chatIdNum, userIdNum), 7 * 86400, "pending");
+  await rdb.setex(verifyDeadlineKey(chatIdNum, userIdNum), 7 * 86400, String(now + timeout + 5));
 
   let kickScheduled = false;
   const scheduleKick = async (): Promise<void> => {
@@ -509,9 +513,11 @@ async function editChallengeResult(env: RedisEnv, api: TelegramApi, chatId: numb
   } catch { /* mensaje borrado o sin permisos */ }
 }
 
-export async function markVerified(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, userName?: string): Promise<void> {
+export async function markVerified(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, userName?: string): Promise<boolean> {
   const rdb = createRedis(env);
-  await rdb.setex(verifyKey(chatId, userId), 86400, "ok");
+  const deadline = Number(await rdb.get(verifyDeadlineKey(chatId, userId)) ?? 0);
+  if (!deadline || deadline < Math.floor(Date.now() / 1000)) return false;
+  if (!(await rdb.compareSet(verifyKey(chatId, userId), "pending", "ok", 7 * 86400))) return false;
 
   const action2 = await getCaptchaAction2(env, chatId);
   const canUnmute = action2 !== "mute" && (await botHasPermissions(env, api, chatId));
@@ -534,6 +540,7 @@ export async function markVerified(env: RedisEnv, api: TelegramApi, chatId: numb
   await clearChallengeState(env, chatId, userId);
   await rdb.del(msgbotKey(chatId, userId), msgsysKey(chatId, userId), msgtypeKey(chatId, userId));
   await bumpStat(env, chatId, "verifications");
+  return true;
 }
 
 export async function markFailed(env: RedisEnv, api: TelegramApi, chatId: number, userId: number, callbackId?: string): Promise<void> {

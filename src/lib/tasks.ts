@@ -87,10 +87,8 @@ async function runKick(env: RedisEnv, api: any, task: Task): Promise<void> {
   const userId = task.param;
 
   const verified = await rdb.get(`verify:${chatId}:${userId}`);
-  if (verified === "ok") {
-    await cleanupUserState(env, chatId, userId);
-    return;
-  }
+  // No actuar sobre un desafío cancelado, fallido al enviarse o ya verificado.
+  if (verified !== "pending" && verified !== "expiring") return;
 
   // Si el desafío se regeneró, la tarea antigua debe esperar al nuevo deadline.
   const deadline = Number((await rdb.get(`verify_deadline:${chatId}:${userId}`)) ?? 0);
@@ -99,12 +97,15 @@ async function runKick(env: RedisEnv, api: any, task: Task): Promise<void> {
     return;
   }
 
+  // La transición atómica impide verificar al mismo tiempo que el cron expulsa.
+  if (verified === "pending" && !(await rdb.compareSet(`verify:${chatId}:${userId}`, "pending", "expiring", 7 * 86400))) return;
+
   const action = (await rdb.get(`group:${chatId}:captcha_action`)) ?? "kick";
   const lang = (await rdb.get(`group:${chatId}:lang`)) ?? "es";
   const delBot = boolDefaultTrue(await rdb.get(`group:${chatId}:delete_bot_messages`));
   const delSys = boolDefaultTrue(await rdb.get(`group:${chatId}:delete_service_messages`));
 
-  try {
+  {
     if (action === "ban") {
       // until_date = 0 -> ban permanente (igual que el bot original).
       await api.banChatMember(chatId, userId, 0);
@@ -112,7 +113,7 @@ async function runKick(env: RedisEnv, api: any, task: Task): Promise<void> {
       await api.kickChatMember(chatId, userId);
     }
     await bumpStat(env, chatId, action === "ban" ? "bans" : "kicks");
-  } catch { /* el usuario pudo salir o ya no existe */ }
+  }
 
   const text = await autoTranslate(env, lang, "❌ fue expulsado por no verificar a tiempo.");
   const msgBotId = await editChallengeResult(env, api, chatId, userId, text);
@@ -147,6 +148,10 @@ async function executeTask(env: RedisEnv, api: any, task: Task): Promise<void> {
   }
 
   if (task.type === "decline") {
+    const rdb = createRedis(env);
+    if ((await rdb.get(`jr:${task.chatId}:${task.param}`)) === "ok") return;
+    const deadline = Number(await rdb.get(`jr:${task.chatId}:${task.param}:deadline`) ?? 0);
+    if (deadline > task.runAt) return;
     try {
       await api.declineChatJoinRequest(task.chatId, task.param);
     } catch { /* best effort */ }
@@ -154,6 +159,8 @@ async function executeTask(env: RedisEnv, api: any, task: Task): Promise<void> {
   }
 
   if (task.type === "ban") {
+    // Un código corregido cancela la sanción diferida de una join request.
+    if ((await createRedis(env).get(`jr:${task.chatId}:${task.param}`)) === "ok") return;
     // Ban permanente por defecto.
     await api.banChatMember(task.chatId, task.param, 0);
     await bumpStat(env, task.chatId, "bans");
@@ -184,6 +191,13 @@ async function executeTask(env: RedisEnv, api: any, task: Task): Promise<void> {
   }
 
   if (task.type === "lockdown") {
+    const rdb = createRedis(env);
+    const snapshotKey = `lockdown:permissions:${task.chatId}`;
+    if (!(await rdb.get(snapshotKey))) {
+      const chat = await api.getChat(task.chatId);
+      if (!chat?.permissions) throw new Error("No se pudieron obtener los permisos originales del grupo");
+      await rdb.setnx(snapshotKey, JSON.stringify(chat.permissions));
+    }
     await api.setChatPermissions(task.chatId, lockdownPermissions());
     // param > 0 => lockdown temporal; 0 => persistente (lo levanta nightmode).
     if (task.param > 0) {
@@ -193,7 +207,17 @@ async function executeTask(env: RedisEnv, api: any, task: Task): Promise<void> {
   }
 
   if (task.type === "unlock") {
-    await api.setChatPermissions(task.chatId, unlockPermissions());
+    const rdb = createRedis(env);
+    const key = `lockdown:permissions:${task.chatId}`;
+    const snapshot = await rdb.get(key);
+    if (!snapshot) {
+      console.error(`No permission snapshot for chat ${task.chatId}; manual restore required`);
+      return;
+    }
+    const permissions = JSON.parse(snapshot);
+    if (!permissions || typeof permissions !== "object" || Array.isArray(permissions)) throw new Error("Invalid permission snapshot");
+    await api.setChatPermissions(task.chatId, permissions);
+    await rdb.del(key);
   }
 }
 
@@ -209,11 +233,17 @@ export async function processTasks(env: RedisEnv, api: any): Promise<void> {
       continue;
     }
     if (task.runAt > now) continue;
-    await rdb.srem(TASKS_KEY, String(member));
+    // SREM actúa como reclamación atómica entre ejecuciones concurrentes.
+    if (!(await rdb.srem(TASKS_KEY, String(member)))) continue;
     try {
       await executeTask(env, api, task);
-    } catch {
-      // Una tarea fallida no debe detener el resto de la cola.
+    } catch (err) {
+      // Conservar fallos transitorios para el próximo cron; no perder sanciones.
+      console.error(`Task failed: ${task.type}`, err);
+      const retryAfter = Number((err as any)?.retryAfter ?? 0);
+      if (!(Number((err as any)?.status) >= 400 && Number((err as any)?.status) < 500 && Number((err as any)?.status) !== 429)) {
+        await addTask(env, { ...task, runAt: now + Math.max(60, Number.isFinite(retryAfter) ? retryAfter : 60) });
+      }
     }
   }
 }
@@ -236,27 +266,6 @@ function lockdownPermissions(): Record<string, any> {
     can_send_voice_notes: false,
     can_use_inline_bots: false,
     can_use_chat_reactions: false,
-  };
-}
-
-function unlockPermissions(): Record<string, any> {
-  return {
-    can_send_messages: true,
-    can_send_media_messages: true,
-    can_send_polls: true,
-    can_send_other_messages: true,
-    can_add_web_page_previews: true,
-    can_change_info: false,
-    can_invite_users: true,
-    can_pin_messages: false,
-    can_send_audios: true,
-    can_send_documents: true,
-    can_send_photos: true,
-    can_send_videos: true,
-    can_send_video_notes: true,
-    can_send_voice_notes: true,
-    can_use_inline_bots: true,
-    can_use_chat_reactions: true,
   };
 }
 

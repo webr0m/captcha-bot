@@ -6,7 +6,13 @@
 import { createRedis, RedisEnv } from "./redis";
 import { TelegramApi } from "./telegram";
 
-const NEGATIVE_TTL_SEC = 1800;
+const NEGATIVE_TTL_SEC = 60;
+export const ADMIN_CACHE_TTL_SEC = 60;
+
+// Nueva clave: las autorizaciones permanentes de versiones anteriores no son fiables.
+export function adminCacheKey(gid: number, userId: number): string {
+  return `admin_access:v2:${gid}:${userId}`;
+}
 
 function isAdminStatus(status: unknown): boolean {
   return status === "administrator" || status === "creator";
@@ -14,23 +20,23 @@ function isAdminStatus(status: unknown): boolean {
 
 /**
  * Comprueba si un usuario administra el grupo.
- * - Caché positiva permanente (`group_access:*`).
- * - Caché negativa de 30 min (`group_access_neg:*`).
+ * - Cachés positiva y negativa limitadas a 60 segundos.
  * - Si no hay caché, consulta a Telegram.
  */
 export async function hasGroupAccess(env: RedisEnv, api: TelegramApi, gid: number, userId: number): Promise<boolean> {
   if (!gid || !userId) return false;
   const rdb = createRedis(env);
-  if ((await rdb.get(`group_access:${gid}:${userId}`)) === "true") return true;
+  if ((await rdb.get(adminCacheKey(gid, userId))) === "true") return true;
   if ((await rdb.get(`group_access_neg:${gid}:${userId}`)) === "1") return false;
 
   try {
     const member = await api.getChatMember(gid, userId);
     const ok = isAdminStatus((member as any)?.status);
     if (ok) {
-      await rdb.set(`group_access:${gid}:${userId}`, "true");
+      await rdb.setex(adminCacheKey(gid, userId), ADMIN_CACHE_TTL_SEC, "true");
       await rdb.del(`group_access_neg:${gid}:${userId}`);
     } else {
+      await rdb.del(adminCacheKey(gid, userId), `group_access:${gid}:${userId}`);
       await rdb.setex(`group_access_neg:${gid}:${userId}`, NEGATIVE_TTL_SEC, "1");
     }
     return ok;
@@ -39,17 +45,19 @@ export async function hasGroupAccess(env: RedisEnv, api: TelegramApi, gid: numbe
   }
 }
 
-/** Igual que `hasGroupAccess` pero ignora la caché negativa (para comandos). */
+/** Comprueba siempre Telegram antes de autorizar comandos o cambios. */
 export async function hasGroupAccessLive(env: RedisEnv, api: TelegramApi, gid: number, userId: number): Promise<boolean> {
   if (!gid || !userId) return false;
   const rdb = createRedis(env);
-  if ((await rdb.get(`group_access:${gid}:${userId}`)) === "true") return true;
   try {
     const member = await api.getChatMember(gid, userId);
     const ok = isAdminStatus((member as any)?.status);
     if (ok) {
-      await rdb.set(`group_access:${gid}:${userId}`, "true");
+      await rdb.setex(adminCacheKey(gid, userId), ADMIN_CACHE_TTL_SEC, "true");
       await rdb.del(`group_access_neg:${gid}:${userId}`);
+    } else {
+      await rdb.del(adminCacheKey(gid, userId), `group_access:${gid}:${userId}`);
+      await rdb.setex(`group_access_neg:${gid}:${userId}`, NEGATIVE_TTL_SEC, "1");
     }
     return ok;
   } catch {

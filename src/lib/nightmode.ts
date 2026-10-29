@@ -15,7 +15,6 @@ import { addTask } from "./tasks";
 import * as captcha from "./captcha";
 
 const GEONAMES_USER = "webrom";
-const API_KEY = "689403f89e8d1375697201xoa8000fe";
 const GEO_TTL_SEC = 30 * 24 * 3600;
 const SUN_TTL_SEC = 6 * 3600;
 
@@ -48,8 +47,10 @@ async function getCoordinates(env: RedisEnv, city: string): Promise<{ lat: numbe
 
   try {
     const encoded = encodeURIComponent(String(city ?? "").trim());
-    const url = `https://geocode.maps.co/search?q=${encoded}&api_key=${API_KEY}`;
-    const res = await fetch(url);
+    const apiKey = (env as RedisEnv & { GEOCODE_API_KEY?: string }).GEOCODE_API_KEY?.trim();
+    if (!apiKey) return null;
+    const url = `https://geocode.maps.co/search?q=${encoded}&api_key=${encodeURIComponent(apiKey)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
     const json = (await res.json().catch(() => null)) as any;
     // geocode.maps.co devuelve un array en la raíz; algunas variantes { results: [] }.
     const results = Array.isArray(json) ? json : json?.results;

@@ -67,6 +67,7 @@ async function storeRequest(env: RedisEnv, chatId: number, userId: number, code:
   await rdb.setex(jrKey(chatId, userId), ttl, "pending");
   await rdb.setex(jrCodeKey(chatId, userId), ttl, code);
   await rdb.setex(lastChannelKey(userId), ttl, String(chatId));
+  await rdb.setex(`jr:${chatId}:${userId}:deadline`, 7 * 86400, String(Math.floor(Date.now() / 1000) + ttl));
 }
 
 async function clearRequest(env: RedisEnv, chatId: number, userId: number): Promise<void> {
@@ -99,7 +100,7 @@ export async function handleChannelJoinRequest(env: RedisEnv, api: TelegramApi, 
     `Envía este código <b>exactamente</b> en este chat dentro de ${timeout} s:\n\n<code>${escapeHtml(code)}</code>`,
   );
   try {
-    await api.sendMessage(userId, `${intro}\n\n${body}`, { parse_mode: "HTML" });
+    await api.sendMessage(Number(req.user_chat_id ?? userId), `${intro}\n\n${body}`, { parse_mode: "HTML" });
   } catch { /* ignore: user may not have started the bot */ }
 
   const now = Math.floor(Date.now() / 1000);
@@ -140,11 +141,12 @@ export async function handlePrivateCheck(env: RedisEnv, api: TelegramApi, msg: a
   }
   if (String(msg.text).trim().toUpperCase() === String(expected).toUpperCase()) {
     const rdb = createRedis(env);
+    // Guardar el éxito solamente después de que Telegram confirme la aprobación.
+    await api.approveChatJoinRequest(chatId, userId);
     await rdb.setex(jrKey(chatId, userId), VERIFIED_TTL_SEC, "ok");
     await rdb.del(jrCodeKey(chatId, userId));
     await rdb.del(lastChannelKey(userId));
     // Aprobar la solicitud pendiente en el canal (si sigue pendiente).
-    try { await api.approveChatJoinRequest(chatId, userId); } catch { /* ya aprobada o expirada */ }
     await api.sendMessage(msg.chat.id, "✅ Verificación correcta. Te hemos aprobado en el canal.");
   } else {
     const sent = await api.sendMessage(

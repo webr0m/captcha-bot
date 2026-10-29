@@ -19,4 +19,5 @@ test("rechaza tareas corruptas o con tipo desconocido", () => {
   assert.equal(parseTask("nope|-100|42|123"), null);
   assert.equal(parseTask("kick|abc|42|123"), null);
   assert.equal(parseTask("kick|-100|42|NaN"), null);
+  for (const value of ["kick|-100|42|123|extra", "kick||42|123", "kick|-100|42.5|123", "kick|-100|42|-1", "kick|-100|42|9007199254740993"]) assert.equal(parseTask(value), null);
 });

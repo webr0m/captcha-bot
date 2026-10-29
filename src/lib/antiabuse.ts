@@ -313,7 +313,6 @@ export async function enforceAntiLink(env: EnvWithBot, api: TelegramApi, msg: an
   const userId = Number(msg?.from?.id ?? 0);
   if (!chatId || !userId || msg?.from?.is_bot) return false;
   if (msg?.chat?.type !== "group" && msg?.chat?.type !== "supergroup") return false;
-  if (String(msg?.text ?? "").startsWith("/")) return false;
 
   const text = String(msg?.text ?? msg?.caption ?? "");
   const entities = msg?.entities ?? msg?.caption_entities;

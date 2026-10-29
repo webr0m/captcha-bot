@@ -18,7 +18,7 @@ import { createRedis } from "./lib/redis";
 import { markVerified } from "./lib/captcha";
 import { handleUsersLog, handleUsersLogCallback } from "./lib/users";
 import { renderVerifyPage, renderInvalidVerifyPage } from "./lib/verify_page";
-import { startPerformance } from "./lib/performance";
+import { startPerformance, ioRequestCount } from "./lib/performance";
 import { auditKnownGroups } from "./lib/onboarding";
 
 export type Env = BotEnv & {
@@ -225,11 +225,9 @@ export default {
     env = performance.env;
     const api = TelegramApi.fromEnv(env);
     // Procesa cola de tareas (kicks/limpiezas/lockdowns), modo nocturno y limpieza periódica.
-    await Promise.allSettled([
-      runSweep(env, api),
-      checkNightMode(env, api),
-      runCleaner(env, api),
-    ]);
+    await runSweep(env, api).catch(() => console.error("task_sweep_failed"));
+    if (ioRequestCount(env) <= 15) await checkNightMode(env, api).catch(() => console.error("nightmode_sweep_failed"));
+    if (ioRequestCount(env) <= 20) await runCleaner(env, api).catch(() => console.error("cleaner_sweep_failed"));
     await auditKnownGroups(env, api).catch(() => console.error("group_audit_failed"));
     performance.finish();
   },

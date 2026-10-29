@@ -44,7 +44,13 @@ async function scheduleLeave(env: EnvWithBot, chatId: number): Promise<void> {
   const key = `leave_scheduled:${chatId}`;
   const now = Math.floor(Date.now() / 1000);
   const deadline = now + GRACE_SECONDS;
-  if (!(await rdb.setnx(key, String(deadline), GRACE_SECONDS + 3600))) return;
+  if (!(await rdb.setnx(key, String(deadline), GRACE_SECONDS + 3600))) {
+    // Repair a task lost after a previous process claimed it and was stopped.
+    // Re-adding a set member is idempotent and never extends the grace period.
+    const existing = await rdb.get(key);
+    if (existing) await addTask(env, { type: "leave", chatId, param: 0, runAt: Number(existing) > 1 ? Number(existing) : deadline });
+    return;
+  }
   try { await addTask(env, { type: "leave", chatId, param: 0, runAt: deadline }); }
   catch (error) { await rdb.del(key).catch(() => null); throw error; }
 }

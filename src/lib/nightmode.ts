@@ -13,6 +13,7 @@ import { TelegramApi } from "./telegram";
 import { autoTranslate } from "./translator";
 import { addTask } from "./tasks";
 import * as captcha from "./captcha";
+import { ioRequestCount } from "./performance";
 
 const GEONAMES_USER = "webrom";
 const GEO_TTL_SEC = 30 * 24 * 3600;
@@ -153,6 +154,7 @@ export async function checkNightMode(env: RedisEnv, api: TelegramApi, onlyChatId
   const nowUtc = Math.floor(Date.now() / 1000);
 
   for (const key of keys) {
+    if (ioRequestCount(env) > 30) break;
     const m = String(key).match(/^nightmode:(-?\d+)$/);
     if (!m) continue;
     const chatId = Number(m[1]);

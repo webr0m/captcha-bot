@@ -14,6 +14,7 @@ import { bumpStat } from "./stats";
 import { hasRequiredAdminRights } from "./access";
 import { parseTask, taskToString } from "./task_format";
 import type { Task } from "./task_format";
+import { ioRequestCount } from "./performance";
 
 export type { Task, TaskType } from "./task_format";
 
@@ -35,6 +36,7 @@ export async function cleanupTasks(env: RedisEnv): Promise<number> {
   const maxAge = 7 * 24 * 3600;
   let removed = 0;
   for (const member of tasks) {
+    if (ioRequestCount(env) > 30) break;
     const task = parseTask(member);
     if (!task || task.runAt < now - maxAge) {
       await rdb.srem(TASKS_KEY, String(member));
@@ -226,7 +228,11 @@ export async function processTasks(env: RedisEnv, api: any): Promise<void> {
   const rdb = createRedis(env);
   const tasks = await rdb.smembers(TASKS_KEY);
   const now = Math.floor(Date.now() / 1000);
+  let claimed = 0;
   for (const member of tasks) {
+    // Check before claiming: everything deferred stays durably in the set.
+    // Reserve enough calls for a captcha sanction, cleanup and a retry enqueue.
+    if (claimed >= 3 || ioRequestCount(env) > 15) break;
     const task = parseTask(member);
     if (!task) {
       // Limpia entradas corruptas para que no crezcan indefinidamente.
@@ -236,6 +242,7 @@ export async function processTasks(env: RedisEnv, api: any): Promise<void> {
     if (task.runAt > now) continue;
     // SREM actúa como reclamación atómica entre ejecuciones concurrentes.
     if (!(await rdb.srem(TASKS_KEY, String(member)))) continue;
+    claimed++;
     try {
       await executeTask(env, api, task);
     } catch (err) {

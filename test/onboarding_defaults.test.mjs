@@ -130,3 +130,26 @@ test("la revisión periódica espera cinco minutos y no reescribe índices sin c
   assert.equal((await auditKnownGroups(env, api())).checked, 0);
   assert.equal(state.calls.length, before);
 });
+
+test("doce salidas simultáneas se reparten sin perder tareas ni superar 50 llamadas", async (t) => {
+  const now = Math.floor(Date.now() / 1000);
+  const gids = Array.from({ length: 12 }, (_, i) => -1001 - i);
+  const state = mockBot(t, { maxRequests: 50, values: Object.fromEntries(gids.flatMap((gid) => [[`group_known:${gid}`, "true"], [`leave_scheduled:${gid}`, String(now - 1)]])), sets: { tasks: gids.map((gid) => `leave|${gid}|0|${now - 1}`) }, telegram(method) { if (method === "getChatMember") return member({ can_delete_messages: false }); } });
+  for (let cycle = 0; cycle < 6; cycle++) {
+    state.resetRequestCount();
+    const scope = startPerformance(env, "test");
+    await processTasks(scope.env, TelegramApi.fromEnv(scope.env));
+    assert.ok(state.requestCount <= 50);
+  }
+  assert.equal(state.calls.filter((call) => call.method === "leaveChat").length, 12);
+  assert.equal(state.sets.get("tasks").size, 0);
+});
+
+test("la auditoría recupera una salida reclamada por un proceso interrumpido", async (t) => {
+  const deadline = Math.floor(Date.now() / 1000) - 1;
+  const state = mockBot(t, { values: { "group_known:-1001": "true", "leave_scheduled:-1001": String(deadline) }, telegram(method) { if (method === "getChatMember") return member({ can_restrict_members: false }); } });
+  await auditKnownGroups(env, api());
+  assert.ok(state.sets.get("tasks").has(`leave|-1001|0|${deadline}`));
+  await processTasks(env, api());
+  assert.ok(state.calls.some((call) => call.method === "leaveChat"));
+});

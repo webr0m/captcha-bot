@@ -22,7 +22,7 @@ El índice no autoriza acciones. Cada fila comprueba al administrador en vivo y 
 
 ## Validación
 
-- **95 pruebas aprobadas**, TypeScript y empaquetado de Wrangler correctos.
+- **97 pruebas aprobadas**, TypeScript y empaquetado de Wrangler correctos.
 - Regresiones nuevas: ON/Turnstile, conservación de OFF y modos explícitos, primera pulsación, Turnstile dentro de 50 llamadas, salida diferida, cancelación, tareas antiguas, reintentos, revisión con cursor y presupuesto, y 12 grupos administrados entre 80 conocidos paginados 5/5/2.
 - Se completó la revisión inicial de un inventario de **41 grupos** mediante lotes en Cloudflare y el cron. Los 19 lotes manuales observaron 37 grupos: 26 listos, 11 con salida programada y cero errores de consulta. Los otros lotes los atendió el cron; los contadores manuales no son un total exhaustivo ni prueban que ya se haya ejecutado una salida.
 - La herramienta temporal de actualización usó una clave aleatoria y caducidad, no devolvió IDs, nombres ni credenciales. El archivo y la ruta se retiran al finalizar.
@@ -31,3 +31,5 @@ El índice no autoriza acciones. Cada fila comprueba al administrador en vivo y 
 Referencias: [permisos del administrador](https://core.telegram.org/bots/api#chatmemberadministrator), [leaveChat](https://core.telegram.org/bots/api#leavechat), [límites de Workers](https://developers.cloudflare.com/workers/platform/limits/).
 
 El botón Resumen se retira del menú principal a petición del usuario; Estadísticas y Ayuda permanecen. Los callbacks antiguos siguen siendo compatibles.
+
+En producción coincidieron varias salidas y un cron alcanzó el límite de subrequests. Se limita la reclamación a tres tareas por ciclo y se comprueba el presupuesto antes de reclamar; las restantes permanecen en Redis. Los servicios periódicos se ejecutan en orden y aplazan trabajo cuando falta margen. La regresión de doce salidas simultáneas completa todas en ciclos sucesivos con menos de 50 llamadas por ejecución. La auditoría recupera una salida reclamada por un proceso interrumpido, sin ampliar el plazo. El cron puede demorar una salida más allá de los cinco minutos si hay tareas acumuladas.

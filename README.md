@@ -4,7 +4,7 @@ Bot de Telegram anti-spam/captcha migrado de **Lua 5.4 + telegram-bot-lua + copa
 
 ## Actualización de octubre de 2026
 
-`/config` muestra nombres de grupos y un menú por secciones con ayuda integrada. En supergrupos con tópicos, las respuestas siguen el hilo del mensaje y el submenú **Tópicos** permite elegir dónde enviar los captchas. Los botones anteriores conservan sus identificadores.
+`/config` muestra nombres de grupos en páginas de hasta ocho candidatos y un menú por secciones con ayuda integrada. Cada página comprueba los permisos actuales sin consultar todos los grupos en la misma ejecución. En supergrupos con tópicos, las respuestas siguen el hilo del mensaje y el submenú **Tópicos** permite elegir dónde enviar los captchas. Los botones anteriores conservan sus identificadores.
 
 Consulta [la auditoría y sus límites](AUDITORIA_2026-10-29.md) para ver las correcciones, la compatibilidad y las mejoras pendientes.
 
@@ -128,7 +128,7 @@ En grupos, `<gid>` se omite y se usa el grupo actual; en privado es obligatorio.
 ## Tests y CI
 
 ```bash
-npm test          # 57 tests de reglas, menús y flujos con APIs simuladas
+npm test          # 62 tests de reglas, menús y flujos con APIs simuladas
 npm run cf-typecheck
 npm run deploy:dry
 ```
@@ -160,7 +160,7 @@ La verificación y las sanciones se aplican al supergrupo completo. Mantén abie
 - Kicks/bans por timeout: **portados** (task queue + cron; ban permanente con `until_date=0`).
 - Moderación automática: **CAS, anti-flood y anti-enlaces** activos por defecto, con comandos por grupo y contadores en `/stats`.
 - Onboarding: **`my_chat_member`** preconfigura el grupo, avisa si faltan permisos y programa salida automática a los 5 min.
-- Validación local de esta revisión: **57/57 tests**, typecheck y dry-run correctos; pipelines de GitHub y GitLab incluidos.
+- Validación local de esta revisión: **62/62 tests**, typecheck y dry-run correctos; pipelines de GitHub y GitLab incluidos.
 - CAS **configurado y probado** con `CAS_API_KEY` en producción (detección de usuarios listados y caché `listed`/`clean`); sin clave queda en fail-open.
 - Modo nocturno, lockdown, cleaner, broadcast, settings, known_users, donate, lang, block_lang, reportes: **portados**.
 - Documentación de despliegue y pruebas: [DEPLOY_CHECKLIST.md](DEPLOY_CHECKLIST.md).

@@ -10,6 +10,7 @@ export function mockBot(t, options = {}) {
   const commands = [];
   const admins = new Set(options.admins ?? [7]);
   let messageId = 100;
+  let requestCount = 0;
   function get(key) {
     if ((expires.get(key) ?? Infinity) <= Date.now()) { values.delete(key); sets.delete(key); expires.delete(key); }
     return values.get(key) ?? null;
@@ -46,6 +47,8 @@ export function mockBot(t, options = {}) {
     }
   }
   t.mock.method(globalThis, "fetch", async (input, init = {}) => {
+    requestCount++;
+    if (requestCount > (options.maxRequests ?? Infinity)) throw new Error("Too many subrequests by single Worker invocation");
     const url = String(input);
     if (url === env.UPSTASH_REDIS_REST_URL) return Response.json({ result: command(JSON.parse(init.body)) });
     assert.ok(url.startsWith("https://api.telegram.org/bottest-token/"), `Unexpected external request: ${url}`);
@@ -64,7 +67,7 @@ export function mockBot(t, options = {}) {
     else if (method === "getChatMemberCount") result = 10;
     return Response.json({ ok: true, result });
   });
-  return { values, sets, expires, calls, commands, admins, get };
+  return { values, sets, expires, calls, commands, admins, get, get requestCount() { return requestCount; }, resetRequestCount() { requestCount = 0; } };
 }
 
 export function message(overrides = {}) {

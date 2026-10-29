@@ -46,12 +46,14 @@ export async function hasGroupAccess(env: RedisEnv, api: TelegramApi, gid: numbe
 }
 
 /** Comprueba siempre Telegram antes de autorizar comandos o cambios. */
-export async function hasGroupAccessLive(env: RedisEnv, api: TelegramApi, gid: number, userId: number): Promise<boolean> {
+export async function hasGroupAccessLive(env: RedisEnv, api: TelegramApi, gid: number, userId: number, options: { cache?: boolean } = {}): Promise<boolean> {
   if (!gid || !userId) return false;
   const rdb = createRedis(env);
   try {
     const member = await api.getChatMember(gid, userId);
     const ok = isAdminStatus((member as any)?.status);
+    // Un listado solo necesita comprobar acceso: evita escrituras por cada fila.
+    if (options.cache === false) return ok;
     if (ok) {
       await rdb.setex(adminCacheKey(gid, userId), ADMIN_CACHE_TTL_SEC, "true");
       await rdb.del(`group_access_neg:${gid}:${userId}`);

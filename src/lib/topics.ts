@@ -23,26 +23,27 @@ export async function trackTopic(env: RedisEnv, msg: any): Promise<void> {
   await rdb.sadd(`forum:topics:${context.chatId}`, String(context.threadId));
 }
 
-async function knownTopics(env: RedisEnv, gid: number): Promise<TopicRecord[]> {
+async function knownTopicIds(env: RedisEnv, gid: number): Promise<number[]> {
   const rdb = createRedis(env);
-  const ids = (await rdb.smembers(`forum:topics:${gid}`)).map(parseTopicId).filter((id): id is number => !!id && id !== 1).sort((a, b) => a - b);
-  const out: TopicRecord[] = [];
-  for (const id of ids) {
-    let record: any;
-    try { record = JSON.parse(await rdb.get(`forum:topic:${gid}:${id}`) ?? "null"); } catch { /* ignorar */ }
-    out.push({ id, name: String(record?.name ?? `Tópico ${id}`), closed: record?.closed === true });
-  }
-  return out;
+  return (await rdb.smembers(`forum:topics:${gid}`)).map(parseTopicId).filter((id): id is number => !!id && id !== 1).sort((a, b) => a - b);
+}
+
+async function readTopic(env: RedisEnv, gid: number, id: number): Promise<TopicRecord> {
+  const data = await createRedis(env).get(`forum:topic:${gid}:${id}`);
+  let record: any;
+  try { record = JSON.parse(data ?? "null"); } catch { /* metadata corruptos */ }
+  return { id, name: String(record?.name ?? `Tópico ${id}`), closed: record?.closed === true };
 }
 
 async function showTopicMenu(env: RedisEnv, api: TelegramApi, cb: any, gid: number, page: number): Promise<void> {
   const selected = parseTopicId(await createRedis(env).get(captchaTopicKey(gid)));
-  const topics = await knownTopics(env, gid);
-  const pages = Math.max(1, Math.ceil(topics.length / 8));
-  page = Math.max(0, Math.min(page, pages - 1));
+  const ids = await knownTopicIds(env, gid);
+  const pages = Math.max(1, Math.ceil(ids.length / 8));
+  page = Math.max(0, Math.min(Number.isSafeInteger(page) ? page : 0, pages - 1));
+  const topics = await Promise.all(ids.slice(page * 8, page * 8 + 8).map((id) => readTopic(env, gid, id)));
   const button = (id: string, label: string) => ({ text: `${String(selected ?? "auto") === id ? "✅ " : ""}${label}`, callback_data: `topic:set:${gid}:${id}:${page}` });
   const rows = [[button("auto", "Automático (tópico de la entrada)")], [button("1", "General")]];
-  for (const topic of topics.slice(page * 8, page * 8 + 8)) {
+  for (const topic of topics) {
     rows.push([button(String(topic.id), `${topic.closed ? "🔒 " : "🧵 "}${topic.name.slice(0, 48)}`)]);
   }
   if (pages > 1) rows.push([
@@ -52,7 +53,7 @@ async function showTopicMenu(env: RedisEnv, api: TelegramApi, cb: any, gid: numb
   ]);
   rows.push([{ text: "🔄 Actualizar tópicos", callback_data: `topics:${gid}:${page}` }]);
   rows.push([{ text: "⬅️ Volver a configuración", callback_data: `settings:${gid}` }]);
-  const topic = topics.find((item) => item.id === selected);
+  const topic = topics.find((item) => item.id === selected) ?? (selected && selected !== 1 ? await readTopic(env, gid, selected) : undefined);
   const label = selected ? (selected === 1 ? "General" : topic?.name ?? `Tópico ${selected}`) : "Automático";
   const text = `🧵 Tópicos · destino del captcha\nGrupo: ${gid}\nDestino actual: ${label}${topic?.closed ? " (cerrado)" : ""}\n\nElige dónde enviar los nuevos desafíos. En automático se usa el hilo de la entrada, o General si no hay hilo.\n\nSi falta un tópico, envía /topico dentro de él y pulsa Actualizar. Los tópicos cerrados deben abrirse antes de seleccionarlos. La configuración y las sanciones afectan al supergrupo completo.`;
   await api.editMessageText(Number(cb.message.chat.id), Number(cb.message.message_id), text, { reply_markup: { inline_keyboard: rows } });
@@ -80,7 +81,8 @@ export async function handleTopicCallback(env: RedisEnv, api: TelegramApi, cb: a
       return;
     }
     if (id && id !== 1) {
-      const topic = (await knownTopics(env, gid)).find((item) => item.id === id);
+      const registered = await createRedis(env).sismember(`forum:topics:${gid}`, String(id));
+      const topic = registered ? await readTopic(env, gid, id) : undefined;
       if (!topic || topic.closed) {
         await api.answerCallbackQuery(cb.id, "El tópico no está registrado o está cerrado. Envía /topico dentro del tópico abierto y actualiza el menú.", true);
         return;

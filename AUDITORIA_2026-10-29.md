@@ -30,7 +30,7 @@
 - Las sanciones de Telegram afectan al supergrupo completo. El anti-flood agrega mensajes de todos los tópicos para evitar evasión.
 - Sin destino configurado se usa el hilo del mensaje de entrada, o General cuando no hay hilo. Si un tópico configurado ya no existe o no admite mensajes, el fallo de envío cancela el desafío y no programa una expulsión nueva.
 - Los estados pendientes y verificados se conservan hasta siete días para que el cron no sancione a partir de un estado desaparecido. La aceptación del desafío sigue limitada por su deadline; los tokens y respuestas mantienen su expiración propia.
-- Telegram no ofrece una lista completa de tópicos al bot. Para registrar uno anterior a la instalación, enviar `/topico` dentro de él y actualizar el menú. La lista de grupos conserva el límite previo de ocho botones.
+- Telegram no ofrece una lista completa de tópicos al bot. Para registrar uno anterior a la instalación, enviar `/topico` dentro de él y actualizar el menú. La lista de grupos ofrece ocho candidatos por página; todos los candidatos siguen disponibles mediante las flechas.
 - Se mantienen los identificadores del propietario existentes en el proyecto; no se reasignan cuentas ni grupos.
 
 ## Secretos y despliegue
@@ -71,3 +71,13 @@
 - No se enviaron pruebas a usuarios ni grupos reales. Queda pendiente una comprobación visual de `/config` y una entrada de prueba desde un cliente de Telegram.
 
 Referencias de compatibilidad consultadas: [mensajes y miembros nuevos](https://core.telegram.org/bots/api#message), [solicitudes de entrada](https://core.telegram.org/bots/api#chatjoinrequest), [restricciones](https://core.telegram.org/bots/api#restrictchatmember) y [envío a tópicos](https://core.telegram.org/bots/api#sendmessage).
+
+## Corrección posterior: `/config` sin respuesta
+
+El usuario detectó que `/config` no respondía en privado. Wrangler Tail confirmó `Too many subrequests by single Worker invocation` tanto en `handleConfigCommand` como al volver al listado desde un callback. La comprobación en vivo de todos los grupos y las escrituras de caché por fila agotaban las consultas antes de enviar la respuesta. La prueba inicial con pocos grupos no cubría este límite.
+
+Se reemplaza el recorrido completo por un selector compartido con ocho candidatos por página. Cada fila comprueba el administrador en vivo y consulta el nombre solo si tiene acceso, sin escribir caché por fila. El comando, Mis grupos, Actualizar y los botones antiguos de refresco usan el mismo selector. La paginación edita el mensaje existente; una página sin grupos accesibles permite seguir avanzando. Los cambios de configuración mantienen su comprobación independiente de permisos.
+
+El selector de tópicos también limita la lectura de nombres a los ocho visibles y, si hace falta, al tópico seleccionado. Se conserva la comprobación de tópicos cerrados sin leer todos sus registros.
+
+La regresión nueva con 80 grupos y un presupuesto simulado de 50 subrequests falla antes de la corrección y pasa después. Se recorren las diez páginas sin omitir grupos, se comprueban los accesos y se prueba un foro de 80 tópicos. Total: 62 pruebas aprobadas, typecheck y dry-run correctos. Referencia del límite: [Cloudflare Workers · Subrequests](https://developers.cloudflare.com/workers/platform/limits/#subrequests).

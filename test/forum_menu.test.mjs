@@ -146,7 +146,7 @@ test("los nombres se conservan al refrescar y volver a Mis grupos", async (t) =>
   const mock = mockBot(t, { values: { "group_known:-1001": "true" } });
   for (const data of ["settings:groupupdate:7", "setup:back:back:-1001"]) {
     await handleUpdate(env, api(), { callback_query: privateCallback(data) });
-    const view = mock.calls.filter((c) => c.method === "sendMessage").at(-1).body;
+    const view = mock.calls.filter((c) => c.method === "editMessageText").at(-1).body;
     assert.equal(view.reply_markup.inline_keyboard[0][0].text, "⚙️ Grupo de prueba");
     assert.equal(view.reply_markup.inline_keyboard[0][0].callback_data, "settings:-1001");
   }
@@ -157,6 +157,73 @@ test("un nombre inaccesible tiene respaldo sin impedir mostrar otros grupos", as
     if (method === "getChat" && body.chat_id === -1002) return Response.json({ ok: false, description: "chat not found" }, { status: 400 });
   } });
   await handleUpdate(env, api(), { message: { chat: { id: 7, type: "private" }, from: { id: 7 }, message_id: 1, text: "/config" } });
-  const buttons = mock.calls.filter((c) => c.method === "sendMessage").at(-1).body.reply_markup.inline_keyboard.flat();
+  const buttons = mock.calls.filter((c) => c.method === "sendMessage").at(-1).body.reply_markup.inline_keyboard.flat().filter((b) => /^settings:-/.test(b.callback_data));
   assert.deepEqual(buttons.map((b) => b.text), ["⚙️ Grupo de prueba", "⚙️ Grupo -1002"]);
+});
+
+test("/config responde con 80 grupos conocidos dentro del límite real de 50 subrequests", async (t) => {
+  const nativeSetTimeout = globalThis.setTimeout;
+  t.mock.method(globalThis, "setTimeout", (fn, ms, ...args) => ms < 1000 ? nativeSetTimeout(fn, 0, ...args) : nativeSetTimeout(fn, ms, ...args));
+  const values = Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`group_known:${-1001 - i}`, "true"]));
+  const mock = mockBot(t, { values, maxRequests: 50 });
+  await handleUpdate(env, api(), { message: { chat: { id: 7, type: "private" }, from: { id: 7 }, message_id: 1, text: "/config" } });
+  assert.ok(mock.requestCount <= 50);
+  const reply = mock.calls.find((c) => c.method === "sendMessage");
+  assert.ok(reply, "Debe enviar la respuesta antes de agotar el presupuesto de subrequests");
+  assert.ok(reply.body.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === "settings:groups:1"));
+});
+
+test("todas las páginas, Volver y el refresco antiguo respetan el límite de subrequests", async (t) => {
+  const values = Object.fromEntries(Array.from({ length: 80 }, (_, i) => [`group_known:${-1001 - i}`, "true"]));
+  const mock = mockBot(t, { values, maxRequests: 50 });
+  const seen = new Set();
+  for (let page = 0; page < 10; page++) {
+    mock.resetRequestCount();
+    await handleUpdate(env, api(), { callback_query: privateCallback(`settings:groups:${page}`) });
+    assert.ok(mock.requestCount <= 50);
+    const view = mock.calls.filter((c) => c.method === "editMessageText").at(-1).body;
+    for (const button of view.reply_markup.inline_keyboard.flat()) if (/^settings:-/.test(button.callback_data)) seen.add(button.callback_data);
+  }
+  assert.equal(seen.size, 80);
+  for (const data of ["settings:groupupdate:7", "setup:back:back:-1001"]) {
+    mock.resetRequestCount();
+    await handleUpdate(env, api(), { callback_query: privateCallback(data) });
+    assert.ok(mock.requestCount <= 50);
+  }
+});
+
+test("una página sin acceso permite continuar y no muestra nombres de grupos ajenos", async (t) => {
+  const values = Object.fromEntries(Array.from({ length: 16 }, (_, i) => [`group_known:${-1001 - i}`, "true"]));
+  const mock = mockBot(t, { values, admins: [], maxRequests: 50 });
+  await handleUpdate(env, api(), { message: { chat: { id: 7, type: "private" }, from: { id: 7 }, message_id: 1, text: "/config" } });
+  const view = mock.calls.find((c) => c.method === "sendMessage").body;
+  assert.match(view.text, /esta página/);
+  assert.equal(view.reply_markup.inline_keyboard.flat().some((b) => /^settings:-/.test(b.callback_data)), false);
+  assert.equal(mock.calls.some((c) => c.method === "getChat"), false);
+  assert.ok(view.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === "settings:groups:1"));
+});
+
+test("el listado verifica administradores en vivo sin escribir una caché por fila", async (t) => {
+  const mock = mockBot(t, { values: { "group_known:-1001": "true", "group_access:-1001:7": "true" }, admins: [] });
+  await handleUpdate(env, api(), { message: { chat: { id: 7, type: "private" }, from: { id: 7 }, message_id: 1, text: "/config" } });
+  assert.ok(mock.calls.some((c) => c.method === "getChatMember" && c.body.chat_id === -1001 && c.body.user_id === 7));
+  assert.equal(mock.commands.some((c) => String(c[1]).startsWith("admin_access:")), false);
+  const view = mock.calls.find((c) => c.method === "sendMessage").body;
+  assert.equal(view.reply_markup.inline_keyboard.flat().some((b) => b.callback_data === "settings:-1001"), false);
+});
+
+test("un foro con 80 tópicos solo consulta los nombres de la página visible", async (t) => {
+  const ids = Array.from({ length: 80 }, (_, i) => String(10 + i));
+  const values = Object.fromEntries(ids.map((id) => [`forum:topic:-1001:${id}`, JSON.stringify({ id: Number(id), name: `Tema ${id}`, closed: false })]));
+  values["group:-1001:captcha_topic"] = "89";
+  const mock = mockBot(t, { values, sets: { "forum:topics:-1001": ids }, maxRequests: 50 });
+  await handleUpdate(env, api(), { callback_query: privateCallback("topics:-1001") });
+  assert.ok(mock.requestCount <= 50);
+  const view = mock.calls.filter((c) => c.method === "editMessageText").at(-1).body;
+  assert.match(view.text, /Destino actual: Tema 89/);
+  assert.equal(mock.commands.filter((c) => c[0] === "GET" && String(c[1]).startsWith("forum:topic:")).length, 9);
+  mock.resetRequestCount();
+  await handleUpdate(env, api(), { callback_query: privateCallback("topic:set:-1001:89:9") });
+  assert.ok(mock.requestCount <= 50);
+  assert.equal(mock.get("group:-1001:captcha_topic"), "89");
 });

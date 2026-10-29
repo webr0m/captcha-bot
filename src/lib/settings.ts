@@ -15,6 +15,7 @@ import { isFeatureEnabled } from "./security_rules";
 import { hasGroupAccessLive } from "./access";
 import { MODES, ACTIONS, ACTIONS_2, SECTIONS, buildSettingsView, type SettingsState, type SettingsSection } from "./settings_menu";
 import { handleStartCommand } from "./start";
+import { showGroupChooser } from "./settings_groups";
 
 async function getSettingsState(env: EnvWithBot, gid: number): Promise<SettingsState> {
   const rdb = createRedis(env);
@@ -52,20 +53,6 @@ async function getChatTitle(env: EnvWithBot, chatId: number): Promise<{ title?: 
   const result = resAny?.result ?? resAny;
   if (!result) return null;
   return { title: result.title, isForum: result.is_forum === true };
-}
-
-/** El ID permanece en callback_data; el botón muestra el nombre de Telegram. */
-async function buildGroupKeyboard(api: TelegramApi, groups: number[]): Promise<any> {
-  const rows = await Promise.all(groups.slice(0, 8).map(async (gid) => {
-    let title = `Grupo ${gid}`;
-    try {
-      const chat = await api.getChat(gid);
-      const name = String(chat?.title ?? chat?.result?.title ?? "").trim();
-      if (name) title = name;
-    } catch { /* El fallo de un título no impide configurar otros grupos. */ }
-    return [{ text: `⚙️ ${Array.from(title).slice(0, 60).join("")}`, callback_data: `settings:${gid}` }];
-  }));
-  return { inline_keyboard: rows };
 }
 
 export async function showSettingsMenu(env: EnvWithBot, api: TelegramApi, chatId: number, messageId: number, gid: number, section: SettingsSection = "home"): Promise<void> {
@@ -121,27 +108,18 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
     return;
   }
 
-  // settings:groupupdate:<x> -> refrescar lista de grupos
-  m = data.match(/^settings:groupupdate:(.+)$/);
-  if (m) {
+  // Botones antiguos de refresco y paginación nueva usan la misma lista acotada.
+  m = data.match(/^settings:groupupdate:(-?\d+)$/);
+  const pageMatch = data.match(/^settings:groups:(\d+)$/);
+  if (m || pageMatch) {
     const userId = Number(cb.from?.id ?? 0);
-    const chatId = Number(m[1]);
-    const lang = (await createRedis(env).get(`group:${chatId}:lang`)) ?? "es";
-    const groups: number[] = [];
-    const keys = await createRedis(env).keys("group_known:*");
-    const rdb = createRedis(env);
-    for (const key of keys) {
-      const owner = key.replace(/^group_known:/, "");
-      const n = Number(owner);
-      if (Number.isFinite(n) && owner !== "all" && !key.startsWith("group_known:tmp:")) groups.push(n);
+    const chatId = Number(cb.message?.chat?.id ?? 0);
+    if (cb.message?.chat?.type !== "private" || chatId !== userId) {
+      await api.answerCallbackQuery(cb.id, "Abre /config en mi chat privado para ver tus grupos.", true);
+      return;
     }
-    const allowed: number[] = [];
-    for (const gid of groups) {
-      if (await hasGroupAccess(env, api, gid, userId)) allowed.push(gid);
-    }
-    const kb = await buildGroupKeyboard(api, allowed);
-    await api.answerCallbackQuery(cb.id, await autoTranslate(env, lang, "⚙️ Elige un grupo para configurar:")).catch(() => null);
-    await api.sendMessage(Number(cb.message?.chat?.id ?? chatId), await autoTranslate(env, lang, "⚙️ Elige un grupo para configurar:"), { reply_markup: kb });
+    await api.answerCallbackQuery(cb.id, "⚙️ Actualizando grupos...").catch(() => null);
+    await showGroupChooser(env, api, { chatId, userId, messageId: Number(cb.message?.message_id) }, Number(pageMatch?.[1] ?? 0));
     return;
   }
 
@@ -300,21 +278,8 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
     }
 
     if (action === "back") {
-      const groups: number[] = [];
-      const keys = await createRedis(env).keys("group_known:*");
-      const rdb = createRedis(env);
-      for (const key of keys) {
-        const owner = key.replace(/^group_known:/, "");
-        const n = Number(owner);
-        if (Number.isFinite(n) && owner !== "all" && !key.startsWith("group_known:tmp:")) groups.push(n);
-      }
-      const allowed: number[] = [];
-      for (const g of groups) {
-        if (await hasGroupAccess(env, api, g, userId)) allowed.push(g);
-      }
-      const kb = await buildGroupKeyboard(api, allowed);
-      await api.answerCallbackQuery(cb.id, "⚙️ Elige un grupo para configurar:").catch(() => null);
-      await api.sendMessage(Number(cb.message?.chat?.id ?? gid), await autoTranslate(env, lang, "⚙️ Elige un grupo para configurar:"), { reply_markup: kb });
+      await api.answerCallbackQuery(cb.id, "⚙️ Tus grupos.").catch(() => null);
+      await showGroupChooser(env, api, { chatId: Number(cb.message?.chat?.id ?? gid), userId, messageId: Number(cb.message?.message_id) });
       return;
     }
 
@@ -366,34 +331,9 @@ export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string
 }
 
 export async function handleConfigCommand(env: RedisEnv & { BOT_TOKEN: string }, api: TelegramApi, msg: any): Promise<void> {
-  const text = String(msg?.text ?? "");
-  const chatId = Number(msg?.chat?.id);
-  const userId = Number(msg?.from?.id);
   if (msg?.chat?.type !== "private") {
     await handleStartCommand(env, api, { ...msg, text: "/start" });
     return;
   }
-
-  const rdb = createRedis(env);
-  const groups: number[] = [];
-  const keys = await rdb.keys("group_known:*");
-  for (const key of keys) {
-    const owner = key.replace(/^group_known:/, "");
-    const n = Number(owner);
-    if (Number.isFinite(n) && owner !== "all" && !key.startsWith("group_known:tmp:")) {
-      // El acceso cacheado puede estar desactualizado; comprobar también en vivo.
-      if (await hasGroupAccessLive(env, api, n, userId)) {
-        groups.push(n);
-      }
-    }
-  }
-  const kb = await buildGroupKeyboard(api, groups);
-  const textOut = groups.length
-    ? await autoTranslate(env, (await rdb.get(`group:${userId}:lang`)) ?? "es", "⚙️ Elige un grupo para configurar:")
-    : await autoTranslate(env, "es", "🤖 No hay grupos conocidos aún.");
-  if (groups.length) {
-    await api.sendMessage(chatId, textOut, { reply_markup: kb });
-  } else {
-    await api.sendMessage(chatId, textOut);
-  }
+  await showGroupChooser(env, api, { chatId: Number(msg.chat.id), userId: Number(msg.from?.id) });
 }

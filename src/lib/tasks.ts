@@ -195,6 +195,11 @@ async function executeTask(env: RedisEnv, api: any, task: Task): Promise<void> {
 
   if (task.type === "lockdown") {
     const rdb = createRedis(env);
+    if (task.param === 0) {
+      const [config, active] = await rdb.mget(`nightmode:${task.chatId}`, `nightmode:active:${task.chatId}`);
+      // A Mini App save can disable night mode while a lockdown is queued.
+      if (config && (JSON.parse(config)?.mode === "off" || active !== "1")) return;
+    }
     const snapshotKey = `lockdown:permissions:${task.chatId}`;
     if (!(await rdb.get(snapshotKey))) {
       const chat = await api.getChat(task.chatId);
@@ -211,6 +216,7 @@ async function executeTask(env: RedisEnv, api: any, task: Task): Promise<void> {
 
   if (task.type === "unlock") {
     const rdb = createRedis(env);
+    if ((await rdb.get(`nightmode:active:${task.chatId}`)) === "1") return;
     const key = `lockdown:permissions:${task.chatId}`;
     const snapshot = await rdb.get(key);
     if (!snapshot) {

@@ -1,0 +1,2621 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta name="color-scheme" content="light dark" />
+    <title>AntiUBot — Configuración</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fa;
+        --card: #fff;
+        --text: #172638;
+        --muted: #718094;
+        --line: #e7ecf1;
+        --accent: #087e76;
+        --soft: #e5f5f1;
+        --wash: #f8fafc;
+        --err: #b83245;
+        --shadow: 0 8px 30px #18304406;
+        --nav-height: 76px;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #101922;
+        --card: #192631;
+        --text: #edf4f6;
+        --muted: #9aaebc;
+        --line: #2c3b47;
+        --accent: #65d6bf;
+        --soft: #213e3c;
+        --wash: #14212c;
+        --err: #ff9da9;
+        --shadow: 0 8px 30px #00000012;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          14px/1.5 -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+      button,
+      a,
+      input,
+      select,
+      textarea {
+        -webkit-tap-highlight-color: transparent;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: default;
+      }
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible,
+      summary:focus-visible {
+        outline: 3px solid var(--accent);
+        outline-offset: 3px;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      svg {
+        width: 21px;
+        height: 21px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex-shrink: 0;
+      }
+      button {
+        border: 0;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 26px;
+        letter-spacing: -0.8px;
+        line-height: 1.2;
+        overflow-wrap: anywhere;
+      }
+      h2 {
+        font-size: 20px;
+        letter-spacing: -0.5px;
+      }
+      h3 {
+        font-size: 15px;
+        letter-spacing: -0.2px;
+      }
+      .app {
+        max-width: 820px;
+        margin: auto;
+        padding: 24px 22px
+          calc(var(--nav-height) + 114px + env(safe-area-inset-bottom));
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 27px;
+        gap: 12px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 17px;
+        font-weight: 750;
+        letter-spacing: -0.5px;
+      }
+      .brand-icon {
+        display: grid;
+        place-items: center;
+        width: 35px;
+        height: 39px;
+        background: var(--accent);
+        color: var(--card);
+        border-radius: 11px 11px 14px 14px;
+      }
+      .top-note {
+        display: none;
+      }
+      .topbar-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .theme-toggle {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        color: var(--accent);
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+      }
+      .theme-toggle svg {
+        width: 19px;
+        height: 19px;
+      }
+      .appearance {
+        margin: -10px 0 20px;
+        padding: 14px 16px;
+        border: 1px solid var(--line);
+        background: var(--card);
+        border-radius: 15px;
+      }
+      .appearance .segments {
+        margin: 10px 0 0;
+      }
+      .appearance .segments button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+      }
+      .gtranslate_wrapper {
+        margin-top: 7px;
+      }
+      .gtranslate_wrapper select {
+        max-width: 100%;
+        width: 100%;
+        font-size: 14px !important;
+        font-family: inherit !important;
+        background: var(--wash) !important;
+        color: var(--text) !important;
+        border-color: var(--line) !important;
+        border-radius: 10px !important;
+        padding: 10px 12px !important;
+        min-height: 44px;
+      }
+      .appearance .segments svg {
+        width: 15px;
+        height: 15px;
+      }
+      .top-note,
+      .eyebrow {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 1.5px;
+        color: var(--muted);
+        text-transform: uppercase;
+      }
+      .online {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--accent);
+        font-size: 11px;
+      }
+      .dot {
+        width: 6px;
+        height: 6px;
+        background: currentColor;
+        border-radius: 50%;
+        display: inline-block;
+      }
+      .hero {
+        margin-bottom: 22px;
+      }
+      .hero-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 8px;
+      }
+      .subtext {
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 8px;
+      }
+      .group-switch {
+        color: var(--accent);
+        background: var(--soft);
+        border: 1px solid transparent;
+        border-radius: 11px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 9px 11px;
+        flex-shrink: 0;
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .group-switch svg {
+        width: 16px;
+        height: 16px;
+      }
+      .picker {
+        background: var(--card);
+        border: 1px solid var(--line);
+        padding: 16px;
+        margin-top: 15px;
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+      }
+      .picker label {
+        display: block;
+        font-weight: 650;
+        margin-bottom: 8px;
+      }
+      .picker-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 12px;
+        gap: 8px;
+      }
+      .picker-pages {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .page-info {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .icon-button {
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: var(--card);
+        color: var(--text);
+        padding: 8px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 35px;
+      }
+      .icon-button svg {
+        height: 16px;
+        width: 16px;
+      }
+      .quiet-button {
+        background: transparent;
+        color: var(--accent);
+        font-weight: 650;
+        font-size: 12px;
+        padding: 8px 2px;
+      }
+      .status {
+        display: none;
+        padding: 13px 15px;
+        border-radius: 12px;
+        margin: 0 0 18px;
+        border: 1px solid var(--line);
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+      .status.ok {
+        background: var(--soft);
+        color: var(--accent);
+      }
+      .status.err {
+        color: var(--err);
+        background: var(--card);
+        border-color: var(--err);
+      }
+      .section-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+        margin: 24px 0 16px;
+      }
+      .section-head p {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 5px;
+      }
+      .section-kicker {
+        font-size: 10px;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 750;
+        margin-bottom: 5px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 17px;
+        padding: 19px;
+        margin-bottom: 14px;
+        box-shadow: var(--shadow);
+      }
+      .card-title {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 4px;
+      }
+      .card-title svg {
+        color: var(--accent);
+        width: 18px;
+        height: 18px;
+      }
+      .card-copy {
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 10px;
+      }
+      .control-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 15px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .control-row:last-child {
+        border-bottom: 0;
+        padding-bottom: 3px;
+      }
+      .control-label {
+        font-weight: 600;
+        display: block;
+      }
+      .hint {
+        color: var(--muted);
+        font-size: 11px;
+        display: block;
+        margin-top: 3px;
+        line-height: 1.5;
+      }
+      .toggle {
+        appearance: none;
+        -webkit-appearance: none;
+        position: relative;
+        flex: 0 0 43px;
+        width: 43px;
+        height: 25px;
+        padding: 0;
+        border: 0;
+        border-radius: 30px;
+        background: #cbd4dc;
+        cursor: pointer;
+        transition: background 0.18s;
+      }
+      .toggle:checked {
+        background: var(--accent);
+      }
+      .toggle::after {
+        content: "";
+        display: block;
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 19px;
+        height: 19px;
+        border-radius: 50%;
+        background: #fff;
+        box-shadow: 0 1px 3px #0002;
+        transition: transform 0.18s;
+      }
+      .toggle:checked::after {
+        transform: translateX(18px);
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 11px;
+        margin-bottom: 18px;
+      }
+      .metric {
+        border: 1px solid var(--line);
+        background: var(--card);
+        border-radius: 15px;
+        padding: 15px;
+        text-align: left;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        box-shadow: var(--shadow);
+      }
+      .metric-icon {
+        display: grid;
+        place-items: center;
+        color: var(--accent);
+        background: var(--soft);
+        border-radius: 12px;
+        width: 39px;
+        height: 39px;
+        flex-shrink: 0;
+      }
+      .metric strong {
+        display: block;
+        font-size: 15px;
+        letter-spacing: -0.3px;
+      }
+      .metric small {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        margin-top: 1px;
+      }
+      .metric .arrow {
+        margin-inline-start: auto;
+        width: 14px;
+        height: 14px;
+        color: var(--muted);
+      }
+      .protection-state {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 7px 11px;
+        background: var(--soft);
+        border-radius: 20px;
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 650;
+        width: fit-content;
+        margin-top: 12px;
+      }
+      .protection-state.paused {
+        color: var(--muted);
+        background: var(--line);
+      }
+      .field {
+        display: block;
+        margin-top: 15px;
+      }
+      .field > span {
+        display: block;
+        font-size: 12px;
+        font-weight: 650;
+        margin-bottom: 7px;
+      }
+      input:not(.toggle):not([type="radio"]):not(.chip-input),
+      select,
+      textarea {
+        width: 100%;
+        min-height: 44px;
+        color: var(--text);
+        background: var(--wash);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+      textarea {
+        min-height: 94px;
+        resize: vertical;
+      }
+      .field-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .field-grid .field {
+        min-width: 0;
+      }
+      .mode-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin: 16px 0 0;
+      }
+      .mode-card {
+        position: relative;
+        cursor: pointer;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 14px 12px;
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        transition:
+          background 0.18s,
+          border-color 0.18s;
+      }
+      .mode-card:has(input:checked) {
+        border-color: var(--accent);
+        background: var(--soft);
+      }
+      .mode-card:has(input:focus-visible) {
+        outline: 3px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .mode-card > svg {
+        color: var(--accent);
+        margin-top: 2px;
+        width: 19px;
+        height: 19px;
+      }
+      .mode-card strong {
+        font-size: 12px;
+        display: block;
+      }
+      .mode-card small {
+        color: var(--muted);
+        font-size: 10px;
+        display: block;
+        margin-top: 3px;
+      }
+      .mode-card input {
+        position: absolute;
+        right: 10px;
+        top: 11px;
+        width: 12px;
+        height: 12px;
+        accent-color: var(--accent);
+        opacity: 0;
+      }
+      .mode-card:has(input:checked)::after {
+        content: "";
+        position: absolute;
+        right: 10px;
+        top: 11px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+      details.card {
+        padding: 0;
+        overflow: hidden;
+      }
+      summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 17px 19px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+        font-weight: 650;
+        gap: 10px;
+      }
+      summary::-webkit-details-marker {
+        display: none;
+      }
+      summary svg {
+        width: 16px;
+        height: 16px;
+        color: var(--muted);
+        transition: transform 0.18s;
+      }
+      details[open] > summary svg {
+        transform: rotate(180deg);
+      }
+      .details-body {
+        padding: 0 19px 18px;
+      }
+      .info {
+        display: flex;
+        gap: 10px;
+        padding: 13px 14px;
+        border-radius: 12px;
+        background: var(--soft);
+        font-size: 11px;
+        color: var(--accent);
+        line-height: 1.7;
+        margin-top: 14px;
+      }
+      .info svg {
+        width: 17px;
+        height: 17px;
+        margin-top: 2px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .chip {
+        position: relative;
+        cursor: pointer;
+      }
+      .chip-input {
+        position: absolute;
+        opacity: 0;
+        width: 1px;
+        height: 1px;
+      }
+      .chip span {
+        display: block;
+        border: 1px solid var(--line);
+        padding: 8px 11px;
+        border-radius: 10px;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .chip:has(input:checked) span {
+        border-color: var(--accent);
+        background: var(--soft);
+        color: var(--accent);
+      }
+      .chip:has(input:focus-visible) span {
+        outline: 3px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .segments {
+        display: flex;
+        padding: 4px;
+        background: var(--wash);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        gap: 3px;
+        margin: 17px 0;
+      }
+      .segments button {
+        flex: 1;
+        background: transparent;
+        color: var(--muted);
+        padding: 10px 5px;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .segments button[aria-pressed="true"] {
+        background: var(--card);
+        color: var(--accent);
+        box-shadow: 0 2px 7px #0000000b;
+      }
+      .night-visual {
+        text-align: center;
+        padding: 22px 14px 12px;
+      }
+      .night-icon {
+        display: inline-grid;
+        place-items: center;
+        border-radius: 50%;
+        width: 65px;
+        height: 65px;
+        background: var(--soft);
+        color: var(--accent);
+        margin-bottom: 12px;
+      }
+      .night-icon svg {
+        width: 30px;
+        height: 30px;
+      }
+      .night-visual h3 {
+        font-size: 17px;
+      }
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+      .stat {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 13px;
+        padding: 16px;
+      }
+      .stat .v {
+        font-size: 25px;
+        font-weight: 750;
+        letter-spacing: -0.8px;
+      }
+      .stat .k {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+      .stat:nth-child(-n + 2) {
+        background: var(--soft);
+        border-color: transparent;
+      }
+      .stat:nth-child(-n + 2) .v {
+        color: var(--accent);
+      }
+      .stats-time {
+        font-size: 10px;
+        color: var(--muted);
+        margin-top: 12px;
+      }
+      .nav-wrap {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 10;
+        pointer-events: none;
+        padding-bottom: env(safe-area-inset-bottom);
+        background: var(--card);
+        border-top: 1px solid var(--line);
+      }
+      .nav {
+        max-width: 820px;
+        margin: auto;
+        display: flex;
+        gap: 3px;
+        padding: 10px 15px 9px;
+        pointer-events: auto;
+      }
+      .nav button {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+        min-height: 54px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 4px;
+        color: var(--muted);
+        background: transparent;
+        border-radius: 11px;
+        font-size: 10px;
+        font-weight: 600;
+      }
+      .nav button[aria-selected="true"] {
+        color: var(--accent);
+        background: var(--soft);
+      }
+      .nav button svg {
+        width: 20px;
+        height: 20px;
+      }
+      .tab-dot {
+        display: none;
+        position: absolute;
+        top: 7px;
+        right: calc(50% - 17px);
+        width: 5px;
+        height: 5px;
+        background: var(--accent);
+        border-radius: 50%;
+      }
+      .nav button[data-dirty="true"] .tab-dot {
+        display: block;
+      }
+      .save-wrap {
+        position: fixed;
+        z-index: 11;
+        bottom: calc(var(--nav-height) + env(safe-area-inset-bottom) + 8px);
+        left: 0;
+        right: 0;
+        padding: 0 16px;
+        pointer-events: none;
+      }
+      .save-bar {
+        max-width: 776px;
+        margin: auto;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--text);
+        color: var(--card);
+        border-radius: 15px;
+        padding: 12px 14px;
+        box-shadow: 0 8px 28px #0002;
+        pointer-events: auto;
+        animation: rise 0.2s ease;
+      }
+      .save-copy {
+        flex: 1;
+        min-width: 0;
+        font-size: 11px;
+        font-weight: 650;
+      }
+      .save-copy small {
+        display: block;
+        font-size: 10px;
+        font-weight: 400;
+        opacity: 0.65;
+        margin-top: 1px;
+      }
+      .save-bar button {
+        border-radius: 9px;
+        padding: 11px 14px;
+        font-size: 12px;
+        font-weight: 700;
+        background: var(--accent);
+        color: #fff;
+      }
+      .save-bar .discard {
+        padding: 9px 2px;
+        background: transparent;
+        color: inherit;
+        opacity: 0.75;
+        font-size: 11px;
+      }
+      .empty {
+        text-align: center;
+        padding: 45px 23px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+      }
+      .empty h2 {
+        font-size: 19px;
+        margin: 14px 0 8px;
+      }
+      .empty p {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .empty svg {
+        color: var(--accent);
+        width: 35px;
+        height: 35px;
+      }
+      .skeleton {
+        height: 145px;
+        background: linear-gradient(
+          90deg,
+          var(--line),
+          var(--wash),
+          var(--line)
+        );
+        background-size: 200% 100%;
+        border-radius: 17px;
+        margin-bottom: 14px;
+        animation: shimmer 1.4s infinite;
+      }
+      .panel {
+        animation: rise 0.18s ease;
+      }
+      .inline-link {
+        color: var(--accent);
+      }
+      @keyframes shimmer {
+        to {
+          background-position: -200% 0;
+        }
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(5px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      @media (min-width: 650px) {
+        .app {
+          padding-top: 30px;
+        }
+        .hero {
+          margin-bottom: 28px;
+        }
+        .hero h1 {
+          font-size: 32px;
+        }
+        .metrics {
+          grid-template-columns: repeat(4, 1fr);
+        }
+        .metric {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 10px;
+          padding: 17px;
+        }
+        .metric .arrow {
+          display: none;
+        }
+        .mode-grid {
+          grid-template-columns: repeat(3, 1fr);
+        }
+        .stats-grid {
+          grid-template-columns: repeat(3, 1fr);
+        }
+        .top-note {
+          display: block;
+        }
+        .nav {
+          padding-inline: 22px;
+        }
+        .nav button {
+          flex-direction: row;
+          font-size: 12px;
+          gap: 9px;
+        }
+      }
+      @media (max-width: 380px) {
+        .app {
+          padding-inline: 15px;
+        }
+        .hero h1 {
+          font-size: 23px;
+        }
+        .group-switch {
+          padding: 8px;
+        }
+        .save-bar {
+          gap: 8px;
+          padding: 11px;
+        }
+        .save-bar button {
+          padding: 10px;
+        }
+        .save-copy small {
+          display: none;
+        }
+        .metric {
+          padding: 12px;
+          gap: 8px;
+        }
+        .metric-icon {
+          width: 33px;
+          height: 33px;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div class="brand notranslate" translate="no">
+          <span class="brand-icon" id="brandIcon"></span>AntiUBot
+        </div>
+        <div class="top-note">Panel de control</div>
+        <div class="topbar-actions">
+          <span class="online notranslate" translate="no" id="connection"
+            ><span class="dot"></span>Telegram</span
+          ><button
+            id="themeToggle"
+            class="theme-toggle"
+            aria-label="Cambiar apariencia"
+            aria-expanded="false"
+            aria-controls="appearancePicker"
+          ></button>
+        </div>
+      </header>
+      <section id="appearancePicker" class="appearance" hidden>
+        <h3>Apariencia</h3>
+        <p class="hint">Elige cómo quieres ver tu panel.</p>
+        <div
+          id="themeOptions"
+          class="segments"
+          role="group"
+          aria-label="Apariencia"
+        ></div>
+        <label class="field"
+          ><span>Idioma de la Mini App</span
+          ><select id="languageMode" aria-label="Idioma de la Mini App">
+            <option value="group">Seguir el idioma del grupo</option>
+            <option value="auto">Automático · Telegram</option>
+            <option value="manual">Elegir idioma</option>
+          </select></label
+        >
+        <div id="languageWidget" class="notranslate" translate="no" hidden>
+          <label class="field"
+            ><span>Elige tu idioma / Choose language</span></label
+          >
+          <div class="gtranslate_wrapper"></div>
+        </div>
+        <p
+          id="translationStatus"
+          class="hint notranslate"
+          translate="no"
+          role="status"
+          aria-live="polite"
+        ></p>
+        <p class="hint">
+          Traducción automática con GTranslate. El idioma de los mensajes del
+          bot se configura en Inicio.
+        </p>
+      </section>
+      <section class="hero" id="groupBar" hidden>
+        <span class="eyebrow">TU ESPACIO DE ADMINISTRACIÓN</span>
+        <div class="hero-line">
+          <h1 id="groupTitle" class="notranslate" translate="no">Tus grupos</h1>
+          <button
+            class="group-switch"
+            id="groupToggle"
+            aria-expanded="false"
+            aria-controls="groupPicker"
+          >
+            Cambiar grupo <span id="switchIcon"></span>
+          </button>
+        </div>
+        <p class="subtext">Todo en orden, desde un solo lugar.</p>
+        <div class="picker" id="groupPicker" hidden>
+          <label for="groupSelect">Elige el grupo que quieres configurar</label
+          ><select
+            id="groupSelect"
+            class="notranslate"
+            translate="no"
+            aria-label="Grupo"
+          ></select>
+          <div class="picker-bottom">
+            <button class="quiet-button" id="refreshGroups">
+              Actualizar grupos
+            </button>
+            <div class="picker-pages">
+              <button
+                class="icon-button"
+                id="prevPage"
+                aria-label="Página anterior"
+              >
+                ←</button
+              ><span class="page-info" id="pageInfo"></span
+              ><button
+                class="icon-button"
+                id="nextPage"
+                aria-label="Página siguiente"
+              >
+                →
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+      <div id="content" aria-busy="true">
+        <div class="skeleton"></div>
+        <div class="skeleton"></div>
+      </div>
+    </main>
+    <div class="save-wrap" id="saveWrap" hidden>
+      <div class="save-bar">
+        <div class="save-copy">
+          <span id="dirtyCount">Cambios pendientes</span
+          ><small>Se aplican al guardar</small>
+        </div>
+        <button class="discard" id="discardButton">Descartar</button
+        ><button id="saveButton">Guardar cambios</button>
+      </div>
+    </div>
+    <div class="nav-wrap" id="navWrap" hidden>
+      <nav
+        class="nav"
+        id="sectionNav"
+        role="tablist"
+        aria-label="Secciones de configuración"
+      ></nav>
+    </div>
+    <script>
+      const tg = window.Telegram && window.Telegram.WebApp;
+      try {
+        if (tg) {
+          tg.ready();
+          tg.expand();
+        }
+      } catch {
+        /* Older clients can still load the app. */
+      }
+      let themeChoice = "auto";
+      try {
+        const saved = localStorage.getItem("antiubot:theme");
+        if (["auto", "light", "dark"].includes(saved)) themeChoice = saved;
+      } catch {}
+      function applyTheme() {
+        const dark =
+          themeChoice === "dark" ||
+          (themeChoice === "auto" &&
+            (tg?.colorScheme === "dark" ||
+              (!tg?.colorScheme &&
+                window.matchMedia?.("(prefers-color-scheme: dark)").matches)));
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document
+          .querySelectorAll("[data-theme-choice]")
+          .forEach((button) =>
+            button.setAttribute(
+              "aria-pressed",
+              String(button.dataset.themeChoice === themeChoice),
+            ),
+          );
+        const button = document.getElementById("themeToggle");
+        if (button && typeof iconPaths !== "undefined")
+          button.replaceChildren(icon(dark ? "moon" : "sun"));
+        try {
+          tg?.setHeaderColor?.(dark ? "#101922" : "#f5f7fa");
+          tg?.setBackgroundColor?.(dark ? "#101922" : "#f5f7fa");
+        } catch {}
+      }
+      // Set colors before rendering; the icon is filled after its definitions load.
+      document.documentElement.dataset.theme =
+        themeChoice === "dark" ||
+        (themeChoice === "auto" && tg?.colorScheme === "dark")
+          ? "dark"
+          : "light";
+      try {
+        tg?.onEvent?.("themeChanged", applyTheme);
+        window
+          .matchMedia?.("(prefers-color-scheme: dark)")
+          .addEventListener?.("change", applyTheme);
+      } catch {}
+      let activeTab = "overview",
+        groupTitle = "",
+        latestStats = null;
+      function haptic() {
+        try {
+          tg?.HapticFeedback?.selectionChanged?.();
+        } catch {}
+      }
+      const initData = tg ? tg.initData : "";
+      const params = new URLSearchParams(location.search);
+      const requestedGid = Number(params.get("gid"));
+      let currentGid =
+        Number.isSafeInteger(requestedGid) && requestedGid < 0
+          ? requestedGid
+          : null;
+      let settings = null,
+        baseline = null,
+        groupsPage = 0,
+        groupsPages = 1;
+      let loadingGroups = false,
+        saving = false,
+        settingsRequest = 0,
+        statsRequest = 0;
+      const writableKeys = [
+        "captcha_enabled",
+        "captcha_mode",
+        "captcha_action",
+        "captcha_action_2",
+        "kick_timeout",
+        "adm_report",
+        "delete_bot_messages",
+        "delete_service_messages",
+        "silent_mode",
+        "cas_enabled",
+        "antiflood_enabled",
+        "antiflood_limit",
+        "antiflood_mute",
+        "antilink_enabled",
+        "link_whitelist",
+        "lang",
+        "blocked_langs",
+        "nightmode",
+      ];
+      function editable(s) {
+        return Object.fromEntries(
+          writableKeys.map((key) => [
+            key,
+            key === "nightmode"
+              ? {
+                  mode: s.nightmode.mode || "off",
+                  city: s.nightmode.city || "",
+                  start: s.nightmode.start || "",
+                  stop: s.nightmode.stop || "",
+                }
+              : Array.isArray(s[key])
+                ? [...s[key]].sort()
+                : s[key],
+          ]),
+        );
+      }
+      function changes() {
+        if (!settings || !baseline) return {};
+        const values = editable(settings);
+        return Object.fromEntries(
+          Object.entries(values).filter(
+            ([key, value]) =>
+              JSON.stringify(value) !== JSON.stringify(baseline[key]),
+          ),
+        );
+      }
+      function setStatus(msg, ok = true) {
+        const e = document.getElementById("status");
+        e.className = "status " + (ok ? "ok" : "err");
+        e.textContent = msg;
+        e.style.display = "block";
+      }
+      function hideStatus() {
+        document.getElementById("status").style.display = "none";
+      }
+      function showError(error) {
+        setStatus(
+          error.message || "No se pudo conectar. Inténtalo nuevamente.",
+          false,
+        );
+      }
+      async function api(path, opts = {}) {
+        let res;
+        try {
+          res = await fetch(path, {
+            ...opts,
+            headers: {
+              Authorization: "tma " + initData,
+              ...(opts.headers || {}),
+            },
+            signal: AbortSignal.timeout(45000),
+            cache: "no-store",
+          });
+        } catch {
+          throw new Error(
+            "No se pudo conectar. Revisa tu conexión y vuelve a intentarlo.",
+          );
+        }
+        let data;
+        try {
+          data = await res.json();
+        } catch {
+          throw new Error(
+            "El servidor devolvió una respuesta inválida. Inténtalo nuevamente.",
+          );
+        }
+        if (!res.ok || !data.ok)
+          throw new Error(data.error || "No se pudo completar la solicitud.");
+        return data;
+      }
+      function groupControls() {
+        document.getElementById("prevPage").disabled =
+          loadingGroups || saving || groupsPage === 0;
+        document.getElementById("nextPage").disabled =
+          loadingGroups || saving || groupsPage + 1 >= groupsPages;
+        document.getElementById("refreshGroups").disabled =
+          loadingGroups || saving;
+        document.getElementById("groupSelect").disabled =
+          loadingGroups || saving;
+        document.getElementById("groupToggle").disabled = saving;
+      }
+      async function loadGroups(page = groupsPage) {
+        if (loadingGroups || saving) return;
+        loadingGroups = true;
+        groupControls();
+        try {
+          const data = await api("/api/miniapp/groups?page=" + page);
+          groupsPage = data.page;
+          groupsPages = data.pages;
+          const sel = document.getElementById("groupSelect");
+          sel.replaceChildren();
+          const placeholder = new Option("Selecciona un grupo", "");
+          placeholder.disabled = true;
+          sel.appendChild(placeholder);
+          data.groups.forEach((g) =>
+            sel.appendChild(new Option(g.title, String(g.id))),
+          );
+          sel.value = data.groups.some((g) => g.id === currentGid)
+            ? String(currentGid)
+            : "";
+          document.getElementById("groupBar").hidden = false;
+          document.getElementById("pageInfo").textContent =
+            "Página " + (groupsPage + 1) + " de " + groupsPages;
+          if (!currentGid && data.groups.length) {
+            currentGid = data.groups[0].id;
+            sel.value = String(currentGid);
+            await loadSettings();
+          } else if (!data.groups.length) {
+            setStatus(
+              groupsPages > 1
+                ? "No hay grupos accesibles en esta página. Usa las flechas."
+                : "No encontré grupos. Añade el bot como administrador y usa /save_groups en tu grupo para actualizar el acceso.",
+              false,
+            );
+          }
+        } catch (error) {
+          showError(error);
+          if (!settings && !currentGid) {
+            const content = document.getElementById("content");
+            content.setAttribute("aria-busy", "false");
+            const retry = el("button", {
+              class: "icon-button",
+              text: "Reintentar conexión",
+            });
+            retry.addEventListener("click", () => loadGroups());
+            content.replaceChildren(
+              el("div", { class: "empty" }, [
+                icon("info"),
+                el("h2", { text: "No pudimos cargar tus grupos" }),
+                el("p", { text: "Revisa el aviso y vuelve a intentarlo." }),
+                retry,
+              ]),
+            );
+          }
+        } finally {
+          loadingGroups = false;
+          groupControls();
+        }
+      }
+      document
+        .getElementById("groupSelect")
+        .addEventListener("change", async (event) => {
+          if (saving) return;
+          if (
+            Object.keys(changes()).length &&
+            !window.confirm(
+              "Hay cambios sin guardar. ¿Quieres cambiar de grupo y descartarlos?",
+            )
+          ) {
+            event.target.value = String(currentGid);
+            return;
+          }
+          haptic();
+          currentGid = Number(event.target.value);
+          document.getElementById("groupPicker").hidden = true;
+          document
+            .getElementById("groupToggle")
+            .setAttribute("aria-expanded", "false");
+          await loadSettings().catch(showError);
+        });
+      document
+        .getElementById("prevPage")
+        .addEventListener("click", () => loadGroups(groupsPage - 1));
+      document
+        .getElementById("nextPage")
+        .addEventListener("click", () => loadGroups(groupsPage + 1));
+      document
+        .getElementById("refreshGroups")
+        .addEventListener("click", () => loadGroups());
+      async function loadSettings() {
+        const gid = currentGid,
+          request = ++settingsRequest;
+        ++statsRequest;
+        settings = null;
+        baseline = null;
+        latestStats = null;
+        document.getElementById("saveWrap").hidden = true;
+        hideStatus();
+        document.getElementById("content").innerHTML =
+          '<div class="skeleton" aria-label="Cargando configuración"></div><div class="skeleton"></div>';
+        document.getElementById("content").setAttribute("aria-busy", "true");
+        try {
+          const data = await api(
+            "/api/miniapp/settings?gid=" + encodeURIComponent(gid),
+          );
+          if (request !== settingsRequest || currentGid !== gid) return;
+          settings = data.settings;
+          baseline = structuredClone(editable(settings));
+          groupTitle = data.group?.title || "Grupo " + gid;
+          render(groupTitle);
+          loadStats();
+        } catch (error) {
+          if (request !== settingsRequest || currentGid !== gid) return;
+          const content = document.getElementById("content");
+          content.textContent = "";
+          const retry = el("button", { text: "Reintentar" });
+          retry.addEventListener("click", () =>
+            loadSettings().catch(showError),
+          );
+          content.appendChild(retry);
+          document.getElementById("content").setAttribute("aria-busy", "false");
+          throw error;
+        }
+      }
+
+      const iconPaths = {
+        sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5M17.5 6.5 19 5"/>',
+        shield:
+          '<path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6Z"/><path d="m8 12 3 3 5-6"/>',
+        home: '<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',
+        lock: '<rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/>',
+        sliders:
+          '<path d="M4 6h7m4 0h5M4 12h2m4 0h10M4 18h10m4 0h2"/><circle cx="13" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="16" cy="18" r="2"/>',
+        moon: '<path d="M20 15A9 9 0 0 1 9 4a9 9 0 1 0 11 11Z"/>',
+        chart: '<path d="M4 4v16h17M8 15v-4m5 4V7m5 8v-6"/>',
+        users:
+          '<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3m1-16a3 3 0 0 1 0 6m2 4a5 5 0 0 1 3 5"/>',
+        chevron: '<path d="m8 5 7 7-7 7"/>',
+        down: '<path d="m6 9 6 6 6-6"/>',
+        info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.5"/>',
+        spark:
+          '<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 3v4m-2-2h4"/>',
+        math: '<path d="M4 7h6M7 4v6m7-3h6M4 17h6m4-2h6m-6 4h6"/>',
+        image:
+          '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1"/><path d="m3 17 5-5 4 4 4-6 5 7"/>',
+        touch:
+          '<path d="M9 13V5a2 2 0 0 1 4 0v7m0-3c2-1 3 0 3 2m0-1c2-1 3 0 3 2v4c0 4-3 6-6 6-2 0-4-1-5-3l-4-6c-1-2 2-3 3-1l2 2"/>',
+        qr: '<path d="M3 3h6v6H3Zm12 0h6v6h-6ZM3 15h6v6H3Zm12 0h2v2h-2Zm4 0h2v6h-6v-2"/>',
+        dice: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M7 7h.01M17 7h.01M12 12h.01M7 17h.01M17 17h.01"/>',
+        smile:
+          '<circle cx="12" cy="12" r="9"/><path d="M8 9h.01M16 9h.01m-9 5c2 4 8 4 10 0"/>',
+        refresh:
+          '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6"/>',
+      };
+      function icon(name) {
+        const e = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        e.setAttribute("viewBox", "0 0 24 24");
+        e.setAttribute("aria-hidden", "true");
+        e.innerHTML = iconPaths[name] || iconPaths.shield;
+        return e;
+      }
+      function el(tag, attrs = {}, children = []) {
+        const e = document.createElement(tag);
+        Object.entries(attrs).forEach(([k, v]) => {
+          if (k === "class") e.className = v;
+          else if (k === "text") e.textContent = v;
+          else e.setAttribute(k, v);
+        });
+        if (tag === "input" || tag === "textarea")
+          e.setAttribute("translate", "no");
+        children.forEach((c) =>
+          e.appendChild(typeof c === "string" ? document.createTextNode(c) : c),
+        );
+        return e;
+      }
+      let controlSequence = 0;
+      const tabs = [
+        { id: "overview", label: "Inicio", icon: "home" },
+        { id: "captcha", label: "Captcha", icon: "lock" },
+        { id: "security", label: "Protección", icon: "shield" },
+        { id: "night", label: "Horario", icon: "moon" },
+        { id: "stats", label: "Actividad", icon: "chart" },
+      ];
+      const modes = [
+        {
+          id: "turnstile",
+          label: "Turnstile",
+          desc: "Verificación web",
+          icon: "shield",
+        },
+        {
+          id: "button",
+          label: "Botón",
+          desc: "Un toque para entrar",
+          icon: "touch",
+        },
+        {
+          id: "math",
+          label: "Matemáticas",
+          desc: "Una operación sencilla",
+          icon: "math",
+        },
+        {
+          id: "emoji",
+          label: "Emojis",
+          desc: "Encuentra el correcto",
+          icon: "smile",
+        },
+        { id: "image", label: "Imagen", desc: "Desafío visual", icon: "image" },
+        {
+          id: "qr",
+          label: "Código QR",
+          desc: "Escanea y responde",
+          icon: "qr",
+        },
+        {
+          id: "dice",
+          label: "Dados",
+          desc: "Verificación con dados",
+          icon: "dice",
+        },
+      ];
+      for (const [value, label, iconName] of [
+        ["light", "Día", "sun"],
+        ["dark", "Noche", "moon"],
+        ["auto", "Automático", "sliders"],
+      ]) {
+        const button = el(
+          "button",
+          { "data-theme-choice": value, "aria-pressed": "false" },
+          [icon(iconName), document.createTextNode(label)],
+        );
+        button.addEventListener("click", () => {
+          themeChoice = value;
+          try {
+            localStorage.setItem("antiubot:theme", value);
+          } catch {}
+          applyTheme();
+          haptic();
+        });
+        document.getElementById("themeOptions").appendChild(button);
+      }
+      document.getElementById("themeToggle").addEventListener("click", () => {
+        const picker = document.getElementById("appearancePicker");
+        picker.hidden = !picker.hidden;
+        document
+          .getElementById("themeToggle")
+          .setAttribute("aria-expanded", String(!picker.hidden));
+        if (!picker.hidden) ensureLanguageWidget().catch(translationError);
+      });
+      applyTheme();
+      document.getElementById("brandIcon").appendChild(icon("shield"));
+      document.getElementById("switchIcon").appendChild(icon("down"));
+      tabs.forEach((tab) => {
+        const b = el(
+          "button",
+          {
+            id: "tab-" + tab.id,
+            role: "tab",
+            "data-tab": tab.id,
+            "aria-controls": "panel-" + tab.id,
+            "aria-selected": "false",
+            tabindex: "-1",
+          },
+          [
+            icon(tab.icon),
+            el("span", { text: tab.label }),
+            el("span", { class: "tab-dot" }),
+          ],
+        );
+        b.addEventListener("click", () => setTab(tab.id));
+        b.addEventListener("keydown", (event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+            return;
+          event.preventDefault();
+          const i = tabs.findIndex((t) => t.id === activeTab);
+          const next =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? tabs.length - 1
+                : (i + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) %
+                  tabs.length;
+          setTab(tabs[next].id);
+          document.getElementById("tab-" + tabs[next].id).focus();
+        });
+        document.getElementById("sectionNav").appendChild(b);
+      });
+      document.getElementById("groupToggle").addEventListener("click", () => {
+        const picker = document.getElementById("groupPicker");
+        picker.hidden = !picker.hidden;
+        document
+          .getElementById("groupToggle")
+          .setAttribute("aria-expanded", String(!picker.hidden));
+        haptic();
+      });
+      function setTab(id, feedback = true) {
+        activeTab = id;
+        tabs.forEach((tab) => {
+          const selected = tab.id === id;
+          const panel = document.getElementById("panel-" + tab.id);
+          if (panel) panel.hidden = !selected;
+          const button = document.getElementById("tab-" + tab.id);
+          button.setAttribute("aria-selected", String(selected));
+          button.setAttribute("tabindex", selected ? "0" : "-1");
+        });
+        if (feedback) haptic();
+      }
+      function updateDirty() {
+        const patch = changes(),
+          count = Object.keys(patch).length;
+        try {
+          if (count) tg?.enableClosingConfirmation?.();
+          else tg?.disableClosingConfirmation?.();
+        } catch {}
+        document.getElementById("saveWrap").hidden = !count && !saving;
+        document.getElementById("dirtyCount").textContent = saving
+          ? "Guardando tus cambios…"
+          : count === 1
+            ? "1 cambio pendiente"
+            : count + " cambios pendientes";
+        document.getElementById("saveButton").disabled = saving || !count;
+        document.getElementById("discardButton").disabled = saving;
+        const map = {
+          overview: [
+            "adm_report",
+            "delete_bot_messages",
+            "delete_service_messages",
+            "lang",
+          ],
+          captcha: [
+            "captcha_enabled",
+            "captcha_mode",
+            "captcha_action",
+            "captcha_action_2",
+            "kick_timeout",
+            "silent_mode",
+          ],
+          security: [
+            "cas_enabled",
+            "antiflood_enabled",
+            "antiflood_limit",
+            "antiflood_mute",
+            "antilink_enabled",
+            "link_whitelist",
+            "blocked_langs",
+          ],
+          night: ["nightmode"],
+          stats: [],
+        };
+        tabs.forEach(
+          (tab) =>
+            (document.getElementById("tab-" + tab.id).dataset.dirty = String(
+              map[tab.id].some((key) => key in patch),
+            )),
+        );
+        updateOverview();
+      }
+      function changed() {
+        hideStatus();
+        updateDirty();
+      }
+      function toggleRow(labelText, checked, onChange, description = "") {
+        const row = el("label", { class: "control-row" });
+        const labelId = "control-label-" + ++controlSequence;
+        const text = el("span", {}, [
+          el("span", { id: labelId, class: "control-label", text: labelText }),
+        ]);
+        if (description)
+          text.appendChild(el("span", { class: "hint", text: description }));
+        const input = el("input", {
+          type: "checkbox",
+          class: "toggle",
+          "aria-labelledby": labelId,
+        });
+        input.checked = !!checked;
+        input.addEventListener("change", () => {
+          onChange(input.checked);
+          haptic();
+          changed();
+        });
+        row.append(text, input);
+        return row;
+      }
+      function field(label, input, hint = "") {
+        const labelId = "field-label-" + ++controlSequence;
+        input.setAttribute("aria-labelledby", labelId);
+        return el("label", { class: "field" }, [
+          el("span", { id: labelId, text: label }),
+          input,
+          ...(hint ? [el("small", { class: "hint", text: hint })] : []),
+        ]);
+      }
+      function selectField(label, value, options, onChange) {
+        const input = el("select");
+        options.forEach(([v, t]) => input.appendChild(new Option(t, v)));
+        input.value = value;
+        input.addEventListener("change", () => {
+          onChange(input.value);
+          changed();
+        });
+        return field(label, input);
+      }
+      function numberField(label, value, min, max, onChange, hint = "") {
+        const input = el("input", {
+          type: "number",
+          min: String(min),
+          max: String(max),
+          step: "1",
+          inputmode: "numeric",
+        });
+        input.value = value;
+        input.addEventListener("input", () => {
+          onChange(Number(input.value));
+          changed();
+        });
+        return field(label, input, hint);
+      }
+      function card(title, iconName, description = "") {
+        const c = el("section", { class: "card" }, [
+          el("div", { class: "card-title" }, [
+            icon(iconName),
+            el("h3", { text: title }),
+          ]),
+        ]);
+        if (description)
+          c.appendChild(el("p", { class: "card-copy", text: description }));
+        return c;
+      }
+      function sectionHead(title, copy, kicker) {
+        return el("div", { class: "section-head" }, [
+          el("div", {}, [
+            el("p", { class: "section-kicker", text: kicker }),
+            el("h2", { text: title }),
+            el("p", { text: copy }),
+          ]),
+        ]);
+      }
+      function info(text) {
+        return el("div", { class: "info" }, [
+          icon("info"),
+          el("span", { text }),
+        ]);
+      }
+      function details(title, children) {
+        return el("details", { class: "card" }, [
+          el("summary", {}, [document.createTextNode(title), icon("down")]),
+          el("div", { class: "details-body" }, children),
+        ]);
+      }
+      function updateOverview() {
+        if (!settings) return;
+        const s = settings;
+        const mode =
+          modes.find((m) => m.id === s.captcha_mode)?.label || s.captcha_mode;
+        const values = {
+          captcha: [s.captcha_enabled ? "Activo" : "Pausado", mode],
+          security: [
+            [s.cas_enabled, s.antiflood_enabled, s.antilink_enabled].filter(
+              Boolean,
+            ).length + " de 3",
+            "Protecciones activas",
+          ],
+          night: [
+            s.nightmode.mode === "off"
+              ? "Sin horario"
+              : s.nightmode.mode === "auto"
+                ? "Automático"
+                : "Manual",
+            s.nightmode.mode === "manual"
+              ? s.nightmode.start + " – " + s.nightmode.stop
+              : "Modo nocturno",
+          ],
+          stats: [latestStats?.members ?? "—", "Miembros del grupo"],
+        };
+        for (const [id, [value, label]] of Object.entries(values)) {
+          const a = document.getElementById("metric-" + id),
+            b = document.getElementById("metric-label-" + id);
+          if (a && a.dataset.sourceText !== String(value)) {
+            a.textContent = value;
+            a.dataset.sourceText = String(value);
+          }
+          if (b && b.dataset.sourceText !== String(label)) {
+            b.textContent = label;
+            b.dataset.sourceText = String(label);
+          }
+        }
+        const state = document.getElementById("protectionState");
+        if (state && state.dataset.sourceText !== String(s.captcha_enabled)) {
+          state.dataset.sourceText = String(s.captcha_enabled);
+          state.className =
+            "protection-state" + (s.captcha_enabled ? "" : " paused");
+          state.replaceChildren(
+            el("span", { class: "dot" }),
+            document.createTextNode(
+              s.captcha_enabled
+                ? "Verificación de nuevas entradas activada"
+                : "Verificación de nuevas entradas pausada",
+            ),
+          );
+        }
+      }
+      function refreshNightUI() {
+        if (!settings) return;
+        const mode = settings.nightmode.mode;
+        document
+          .querySelectorAll("[data-night-mode]")
+          .forEach((b) =>
+            b.setAttribute(
+              "aria-pressed",
+              String(b.dataset.nightMode === mode),
+            ),
+          );
+        document.getElementById("nightFields").hidden = mode === "off";
+        document.getElementById("manualTimes").hidden = mode !== "manual";
+        document.getElementById("nightDescription").textContent =
+          mode === "off"
+            ? "El grupo mantiene su horario habitual."
+            : mode === "auto"
+              ? "Cierra al anochecer y abre al amanecer según tu ciudad."
+              : "Tú eliges a qué hora cierra y abre el grupo.";
+      }
+      function render(title) {
+        const s = settings,
+          c = document.getElementById("content");
+        c.replaceChildren();
+        c.setAttribute("aria-busy", "false");
+        document.getElementById("groupTitle").textContent = title;
+        document.getElementById("groupBar").hidden = false;
+        document.getElementById("navWrap").hidden = false;
+        const panels = Object.fromEntries(
+          tabs.map((tab) => {
+            const panel = el("section", {
+              id: "panel-" + tab.id,
+              class: "panel",
+              role: "tabpanel",
+              "aria-labelledby": "tab-" + tab.id,
+            });
+            c.appendChild(panel);
+            return [tab.id, panel];
+          }),
+        );
+        let panel = panels.overview;
+        panel.appendChild(
+          sectionHead(
+            "Todo bajo control",
+            "Un vistazo a tu grupo y sus preferencias.",
+            "Vista general",
+          ),
+        );
+        const metrics = el("div", { class: "metrics" });
+        for (const [id, iconName] of [
+          ["captcha", "lock"],
+          ["security", "shield"],
+          ["night", "moon"],
+          ["stats", "users"],
+        ]) {
+          const b = el(
+            "button",
+            {
+              class: "metric",
+              "aria-label": "Abrir " + tabs.find((t) => t.id === id).label,
+            },
+            [
+              el("span", { class: "metric-icon" }, [icon(iconName)]),
+              el("span", {}, [
+                el("strong", { id: "metric-" + id, text: "—" }),
+                el("small", { id: "metric-label-" + id, text: "Cargando" }),
+              ]),
+              icon("chevron"),
+            ],
+          );
+          b.lastChild.classList.add("arrow");
+          b.addEventListener("click", () => setTab(id));
+          metrics.appendChild(b);
+        }
+        panel.appendChild(metrics);
+        const preferences = card("Mensajes y avisos", "sliders");
+        preferences.append(
+          toggleRow(
+            "Avisar a administradores",
+            s.adm_report,
+            (v) => (s.adm_report = v),
+            "Envía los reportes de entrada por privado.",
+          ),
+          toggleRow(
+            "Limpiar mensajes del bot",
+            s.delete_bot_messages,
+            (v) => (s.delete_bot_messages = v),
+            "Retira los mensajes de verificación al terminar.",
+          ),
+          toggleRow(
+            "Limpiar mensajes de servicio",
+            s.delete_service_messages,
+            (v) => (s.delete_service_messages = v),
+            "Borra los avisos de entrada y salida.",
+          ),
+        );
+        panel.appendChild(preferences);
+        const language = card("Idioma del bot", "smile");
+        language.appendChild(
+          selectField(
+            "Idioma de los mensajes",
+            s.lang,
+            Object.entries(s.lang_labels),
+            (v) => {
+              s.lang = v;
+              applyMiniAppLanguage();
+            },
+          ),
+        );
+        panel.appendChild(language);
+        panel.appendChild(
+          info(
+            "Los cambios se aplican al grupo seleccionado. Puedes seguir usando /config y los comandos del bot.",
+          ),
+        );
+        panel = panels.captcha;
+        panel.appendChild(
+          sectionHead(
+            "Una entrada más segura",
+            "Elige cómo se verifican los nuevos miembros.",
+            "Verificación",
+          ),
+        );
+        let block = card("Verificación de entradas", "lock");
+        block.appendChild(
+          toggleRow(
+            "Captcha activo",
+            s.captcha_enabled,
+            (v) => (s.captcha_enabled = v),
+            "Comprueba a los nuevos miembros antes de dejarlos participar.",
+          ),
+        );
+        block.appendChild(
+          el("div", { id: "protectionState", class: "protection-state" }),
+        );
+        panel.appendChild(block);
+        block = card(
+          "Elige el desafío",
+          "spark",
+          "La selección se aplica a las próximas entradas.",
+        );
+        const grid = el("div", {
+          class: "mode-grid",
+          role: "radiogroup",
+          "aria-label": "Modo de captcha",
+        });
+        modes.forEach((mode) => {
+          const modeLabelId = "mode-label-" + mode.id;
+          const input = el("input", {
+            type: "radio",
+            name: "captcha_mode",
+            value: mode.id,
+            "aria-labelledby": modeLabelId,
+          });
+          input.checked = s.captcha_mode === mode.id;
+          input.addEventListener("change", () => {
+            s.captcha_mode = mode.id;
+            haptic();
+            changed();
+          });
+          grid.appendChild(
+            el("label", { class: "mode-card" }, [
+              input,
+              icon(mode.icon),
+              el("span", {}, [
+                el("strong", {
+                  id: modeLabelId,
+                  text: mode.label,
+                  ...(mode.id === "turnstile"
+                    ? { class: "notranslate", translate: "no" }
+                    : {}),
+                }),
+                el("small", { text: mode.desc }),
+              ]),
+            ]),
+          );
+        });
+        block.appendChild(grid);
+        panel.appendChild(block);
+        panel.appendChild(
+          details("Tiempo, acciones y envío por privado", [
+            numberField(
+              "Tiempo de verificación (segundos)",
+              s.kick_timeout,
+              5,
+              3600,
+              (v) => (s.kick_timeout = v),
+            ),
+            selectField(
+              "Al caducar el desafío",
+              s.captcha_action,
+              [
+                ["kick", "Expulsar · puede volver"],
+                ["ban", "Banear · bloqueo permanente"],
+              ],
+              (v) => (s.captcha_action = v),
+            ),
+            selectField(
+              "Mientras verifica",
+              s.captcha_action_2,
+              [
+                ["mute", "Borrar sus mensajes"],
+                ["restrict", "Silenciar temporalmente"],
+              ],
+              (v) => (s.captcha_action_2 = v),
+            ),
+            toggleRow(
+              "Turnstile por privado",
+              s.silent_mode,
+              (v) => (s.silent_mode = v),
+              "Si el privado está cerrado, el enlace se envía al grupo.",
+            ),
+          ]),
+        );
+        panel = panels.security;
+        panel.appendChild(
+          sectionHead(
+            "Protección a tu medida",
+            "Activa los filtros que necesita tu comunidad.",
+            "Seguridad",
+          ),
+        );
+        block = card("Filtros del grupo", "shield");
+        block.append(
+          toggleRow(
+            "CAS · lista antispam",
+            s.cas_enabled,
+            (v) => (s.cas_enabled = v),
+            "Consulta la lista de Combot al entrar.",
+          ),
+          toggleRow(
+            "Anti-flood",
+            s.antiflood_enabled,
+            (v) => (s.antiflood_enabled = v),
+            "Limita los mensajes seguidos de un mismo usuario.",
+          ),
+          toggleRow(
+            "Anti-enlaces",
+            s.antilink_enabled,
+            (v) => (s.antilink_enabled = v),
+            "Elimina enlaces que no están permitidos.",
+          ),
+        );
+        panel.appendChild(block);
+        panel.appendChild(
+          details("Ajustar los límites de mensajes", [
+            numberField(
+              "Mensajes permitidos cada 10 segundos",
+              s.antiflood_limit,
+              3,
+              50,
+              (v) => (s.antiflood_limit = v),
+            ),
+            numberField(
+              "Duración del silencio (minutos)",
+              s.antiflood_mute / 60,
+              1,
+              1440,
+              (v) => (s.antiflood_mute = Math.round(v * 60)),
+            ),
+          ]),
+        );
+        const whitelist = el("textarea", {
+          placeholder: "ejemplo.com\notro-dominio.org",
+        });
+        whitelist.value = s.link_whitelist.join("\n");
+        whitelist.addEventListener("input", () => {
+          s.link_whitelist = whitelist.value
+            .split(/\n/)
+            .map((x) => x.trim())
+            .filter(Boolean);
+          changed();
+        });
+        panel.appendChild(
+          details("Dominios y enlaces permitidos", [
+            field(
+              "Dominios permitidos extra",
+              whitelist,
+              "Escribe un dominio o enlace por línea.",
+            ),
+            info(
+              "Los enlaces oficiales del bot siempre están permitidos: " +
+                s.default_link_whitelist.join(", "),
+            ),
+          ]),
+        );
+        const chips = el("div", { class: "chips" });
+        s.supported_langs.forEach((code) => {
+          const input = el("input", {
+            type: "checkbox",
+            class: "chip-input",
+            "aria-label": "Bloquear " + s.lang_labels[code],
+          });
+          input.checked = s.blocked_langs.includes(code);
+          input.addEventListener("change", () => {
+            s.blocked_langs = input.checked
+              ? [...s.blocked_langs, code]
+              : s.blocked_langs.filter((x) => x !== code);
+            haptic();
+            changed();
+          });
+          chips.appendChild(
+            el("label", { class: "chip" }, [
+              input,
+              el("span", { text: s.lang_labels[code] }),
+            ]),
+          );
+        });
+        panel.appendChild(
+          details("Idiomas bloqueados", [
+            el("p", {
+              class: "hint",
+              text: "Selecciona los idiomas que quieres filtrar. Una opción marcada indica bloqueo.",
+            }),
+            chips,
+          ]),
+        );
+        panel = panels.night;
+        panel.appendChild(
+          sectionHead(
+            "Dale un descanso al grupo",
+            "Organiza los momentos de cierre y apertura.",
+            "Modo nocturno",
+          ),
+        );
+        block = card("Horario del grupo", "moon");
+        block.appendChild(
+          el("div", { class: "night-visual" }, [
+            el("span", { class: "night-icon" }, [icon("moon")]),
+            el("h3", {
+              text: s.nightmode.active
+                ? "El modo nocturno está activo"
+                : "Tu comunidad, a su ritmo",
+            }),
+            el("p", { class: "hint", id: "nightDescription" }),
+          ]),
+        );
+        const segments = el("div", {
+          class: "segments",
+          role: "group",
+          "aria-label": "Modo nocturno",
+        });
+        for (const [mode, label] of [
+          ["off", "Desactivado"],
+          ["auto", "Automático"],
+          ["manual", "Manual"],
+        ]) {
+          const b = el("button", {
+            "data-night-mode": mode,
+            "aria-pressed": "false",
+            text: label,
+          });
+          b.addEventListener("click", () => {
+            s.nightmode.mode = mode;
+            refreshNightUI();
+            haptic();
+            changed();
+          });
+          segments.appendChild(b);
+        }
+        block.appendChild(segments);
+        const nightFields = el("div", { id: "nightFields" });
+        const city = el("input", {
+          type: "text",
+          placeholder: "Santiago, Chile",
+          maxlength: "200",
+        });
+        city.value = s.nightmode.city;
+        city.addEventListener("input", () => {
+          s.nightmode.city = city.value;
+          changed();
+        });
+        nightFields.appendChild(field("Ciudad y país", city));
+        const times = el("div", { class: "field-grid", id: "manualTimes" });
+        for (const [key, label] of [
+          ["start", "Hora de cierre"],
+          ["stop", "Hora de apertura"],
+        ]) {
+          const input = el("input", { type: "time" });
+          input.value = s.nightmode[key];
+          input.addEventListener("input", () => {
+            s.nightmode[key] = input.value;
+            changed();
+          });
+          times.appendChild(field(label, input));
+        }
+        nightFields.appendChild(times);
+        block.appendChild(nightFields);
+        panel.appendChild(block);
+        panel.appendChild(
+          info(
+            "Se aplica a todo el grupo, incluidos sus tópicos. El bot lo revisa cada minuto; los cambios de permisos se procesan en su cola de tareas.",
+          ),
+        );
+        panel.appendChild(
+          details("Sobre el horario y los permisos", [
+            el("p", {
+              class: "hint",
+              text: "El horario manual conserva el desfase GMT obtenido al configurar. Revísalo cuando cambie la hora local. Al desactivar el modo nocturno, el bot restaura los permisos guardados durante los siguientes ciclos de tareas.",
+            }),
+          ]),
+        );
+        panel = panels.stats;
+        const head = sectionHead(
+          "La actividad de tu grupo",
+          "Los contadores que registra el bot.",
+          "Estadísticas",
+        );
+        const refresh = el(
+          "button",
+          { class: "icon-button", "aria-label": "Actualizar estadísticas" },
+          [icon("refresh")],
+        );
+        refresh.addEventListener("click", loadStats);
+        head.appendChild(refresh);
+        panel.appendChild(head);
+        panel.appendChild(
+          el("div", { id: "statsBox", text: "Cargando actividad…" }),
+        );
+        panel.appendChild(el("p", { id: "statsTime", class: "stats-time" }));
+        setTab(activeTab, false);
+        refreshNightUI();
+        updateDirty();
+        if (latestStats) renderStatsData(latestStats);
+        applyMiniAppLanguage();
+      }
+
+      function renderStatsData(data) {
+        const box = document.getElementById("statsBox");
+        if (!box) return;
+        const labels = {
+          members: "Miembros",
+          known_users: "Usuarios conocidos",
+          messages: "Mensajes",
+          joins: "Entradas",
+          verifications: "Verificaciones",
+          kicks: "Expulsiones",
+          bans: "Baneos",
+          cas: "Detecciones CAS",
+          flood: "Acciones anti-flood",
+          links: "Enlaces borrados",
+        };
+        const grid = el("div", { class: "stats-grid" });
+        Object.entries(data).forEach(([key, value]) =>
+          grid.appendChild(
+            el("div", { class: "stat" }, [
+              el("div", {
+                class: "v notranslate",
+                translate: "no",
+                text:
+                  typeof value === "number" ? value.toLocaleString("es") : "—",
+              }),
+              el("div", { class: "k", text: labels[key] || key }),
+            ]),
+          ),
+        );
+        box.replaceChildren(grid);
+        const time = document.getElementById("statsTime");
+        if (time)
+          time.textContent =
+            "Actualizado a las " +
+            new Date().toLocaleTimeString("es", {
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+      }
+      async function loadStats() {
+        const gid = currentGid,
+          request = ++statsRequest;
+        const button = document.querySelector(
+          '[aria-label="Actualizar estadísticas"]',
+        );
+        if (button) button.disabled = true;
+        try {
+          const data = await api(
+            "/api/miniapp/stats?gid=" + encodeURIComponent(gid),
+          );
+          if (gid !== currentGid || request !== statsRequest) return;
+          latestStats = data.stats;
+          renderStatsData(latestStats);
+          updateOverview();
+        } catch (error) {
+          if (gid === currentGid && request === statsRequest) {
+            const box = document.getElementById("statsBox");
+            if (box) box.textContent = error.message;
+          }
+        } finally {
+          if (gid === currentGid && request === statsRequest && button)
+            button.disabled = false;
+        }
+      }
+      document.getElementById("discardButton").addEventListener("click", () => {
+        if (saving || !settings || !baseline) return;
+        const night = {
+          ...settings.nightmode,
+          ...structuredClone(baseline.nightmode),
+        };
+        Object.assign(settings, structuredClone(baseline));
+        settings.nightmode = night;
+        render(groupTitle);
+        haptic();
+        setStatus("Cambios descartados. No se ha modificado el grupo.");
+      });
+      document.getElementById("saveButton").addEventListener("click", save);
+      async function save() {
+        if (saving || !settings) return;
+        const patch = changes();
+        if (!Object.keys(patch).length) return;
+        for (const input of document.querySelectorAll("#content input")) {
+          if (!input.validity.valid) {
+            const panel = input.closest('[role="tabpanel"]');
+            if (panel) setTab(panel.id.replace("panel-", ""), false);
+            const fold = input.closest("details");
+            if (fold) fold.open = true;
+            input.reportValidity();
+            return;
+          }
+        }
+        if (patch.nightmode && patch.nightmode.mode !== "off") {
+          if (!patch.nightmode.city.trim()) {
+            setTab("night");
+            showError(
+              new Error(
+                "Escribe una ciudad y país para configurar el horario.",
+              ),
+            );
+            return;
+          }
+          if (
+            patch.nightmode.mode === "manual" &&
+            (!patch.nightmode.start ||
+              !patch.nightmode.stop ||
+              patch.nightmode.start === patch.nightmode.stop)
+          ) {
+            setTab("night");
+            showError(new Error("Elige horas de cierre y apertura distintas."));
+            return;
+          }
+        }
+        saving = true;
+        groupControls();
+        updateDirty();
+        document
+          .querySelectorAll(
+            "#content input, #content select, #content textarea, #content button",
+          )
+          .forEach((e) => (e.disabled = true));
+        document.getElementById("saveButton").textContent = "Guardando…";
+        try {
+          await api("/api/miniapp/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ gid: currentGid, changes: patch }),
+          });
+          try {
+            await loadSettings();
+            setStatus(
+              "Cambios guardados." +
+                (patch.nightmode
+                  ? " El horario se aplica en los próximos ciclos del bot."
+                  : ""),
+            );
+            try {
+              tg?.HapticFeedback?.notificationOccurred?.("success");
+            } catch {}
+          } catch {
+            setStatus(
+              "Cambios guardados. No se pudo actualizar la vista; pulsa Reintentar.",
+              false,
+            );
+          }
+        } catch (error) {
+          showError(error);
+        } finally {
+          saving = false;
+          groupControls();
+          document
+            .querySelectorAll(
+              "#content input, #content select, #content textarea, #content button",
+            )
+            .forEach((e) => (e.disabled = false));
+          document.getElementById("saveButton").textContent = "Guardar cambios";
+          updateDirty();
+        }
+      }
+      const uiLanguages = [
+        "es",
+        "en",
+        "fr",
+        "pt",
+        "zh-CN",
+        "ja",
+        "fa",
+        "ar",
+        "de",
+        "ko",
+        "ru",
+        "it",
+      ];
+      let uiLanguageMode = "group",
+        manualLanguage = "es",
+        widgetPromise = null,
+        enginePromise = null,
+        languageRequest = 0,
+        currentUiLanguage = "es";
+      try {
+        const mode = localStorage.getItem("antiubot:ui-language-mode");
+        if (["group", "auto", "manual"].includes(mode)) uiLanguageMode = mode;
+        const language = localStorage.getItem("antiubot:ui-language");
+        if (uiLanguages.includes(language)) manualLanguage = language;
+      } catch {}
+      function normalizedLanguage(value) {
+        const raw = String(value || "").toLowerCase();
+        if (raw.startsWith("zh")) return "zh-CN";
+        const code = raw.split(/[-_]/)[0];
+        return uiLanguages.includes(code) ? code : "es";
+      }
+      function resolvedUiLanguage() {
+        if (uiLanguageMode === "manual") return manualLanguage;
+        if (uiLanguageMode === "group")
+          return normalizedLanguage(settings?.lang || "es");
+        return normalizedLanguage(
+          tg?.initDataUnsafe?.user?.language_code || navigator.language || "es",
+        );
+      }
+      function translationError() {
+        document.getElementById("translationStatus").textContent =
+          "Traducción no disponible. El panel sigue funcionando en español. Abre Apariencia para reintentar.";
+      }
+      function ensureLanguageWidget() {
+        if (widgetPromise) return widgetPromise;
+        widgetPromise = new Promise((resolve, reject) => {
+          window.gtranslateSettings = {
+            default_language: "es",
+            native_language_names: true,
+            detect_browser_language: false,
+            languages: uiLanguages,
+            wrapper_selector: ".gtranslate_wrapper",
+            select_language_label: "Idioma / Language",
+            horizontal_position: "inline",
+          };
+          const script = document.createElement("script");
+          script.src = "https://cdn.gtranslate.net/widgets/latest/dropdown.js";
+          script.async = true;
+          script.dataset.cfasync = "false";
+          const timer = setTimeout(() => {
+            script.remove();
+            reject(new Error("widget timeout"));
+          }, 15000);
+          script.addEventListener(
+            "error",
+            () => {
+              clearTimeout(timer);
+              script.remove();
+              reject(new Error("widget unavailable"));
+            },
+            { once: true },
+          );
+          script.addEventListener(
+            "load",
+            () => {
+              clearTimeout(timer);
+              // Keep the provider's generated widget, but replace its DOM listeners.
+              // Its current hover/focus loader passes an Event as a callback, which
+              // throws after the library has loaded. Our adapter loads it explicitly.
+              const original = document.querySelector(".gtranslate_wrapper");
+              const wrapper = original.cloneNode(true);
+              original.replaceWith(wrapper);
+              const select = wrapper.querySelector("select");
+              if (!select) {
+                reject(new Error("widget missing"));
+                return;
+              }
+              select.setAttribute(
+                "aria-label",
+                "Idioma de traducción / Translation language",
+              );
+              select.addEventListener("change", () => {
+                const chosen = select.value.split("|")[1];
+                if (!uiLanguages.includes(chosen)) return;
+                manualLanguage = chosen;
+                uiLanguageMode = "manual";
+                document.getElementById("languageMode").value = "manual";
+                saveLanguagePreference();
+                applyMiniAppLanguage();
+                haptic();
+              });
+              resolve();
+            },
+            { once: true },
+          );
+          document.body.appendChild(script);
+        }).catch((error) => {
+          widgetPromise = null;
+          throw error;
+        });
+        return widgetPromise;
+      }
+      function ensureTranslationEngine() {
+        if (enginePromise) return enginePromise;
+        enginePromise = (async () => {
+          await ensureLanguageWidget();
+          // Translation initializes asynchronously after the engine script loads.
+          if (!window.gt_translate_script) {
+            const script = document.createElement("script");
+            script.src = "https://cdn.gtranslate.net/widgets/latest/lib.min.js";
+            script.async = true;
+            window.gt_translate_script = script;
+            script.addEventListener(
+              "error",
+              () => {
+                script.remove();
+                if (window.gt_translate_script === script)
+                  window.gt_translate_script = null;
+              },
+              { once: true },
+            );
+            document.body.appendChild(script);
+          }
+          await new Promise((resolve, reject) => {
+            const until = Date.now() + 15000;
+            function check() {
+              if (window.__GT?.translator?.libReady) {
+                resolve();
+                return;
+              }
+              if (Date.now() >= until) {
+                reject(new Error("engine timeout"));
+                return;
+              }
+              setTimeout(check, 100);
+            }
+            check();
+          });
+        })().catch((error) => {
+          enginePromise = null;
+          throw error;
+        });
+        return enginePromise;
+      }
+      function saveLanguagePreference() {
+        try {
+          localStorage.setItem("antiubot:ui-language-mode", uiLanguageMode);
+          localStorage.setItem("antiubot:ui-language", manualLanguage);
+        } catch {}
+      }
+      async function applyMiniAppLanguage() {
+        const request = ++languageRequest,
+          language = resolvedUiLanguage();
+        document.getElementById("languageMode").value = uiLanguageMode;
+        document.getElementById("languageWidget").hidden =
+          uiLanguageMode !== "manual";
+        if (
+          language === "es" &&
+          currentUiLanguage === "es" &&
+          !window.__GT?.translator
+        ) {
+          document.documentElement.lang = "es";
+          document.documentElement.dir = "ltr";
+          document.getElementById("translationStatus").textContent = "";
+          return;
+        }
+        try {
+          await ensureTranslationEngine();
+          if (request !== languageRequest) return;
+          const translator = window.__GT.translator;
+          translator.resultCallback = () => {
+            if (translator.error) translationError();
+          };
+          if (language !== currentUiLanguage || !translator.finished) {
+            window.doGTranslate("es|" + language);
+            currentUiLanguage = language;
+          }
+          document.documentElement.lang = language;
+          document.documentElement.dir = ["ar", "fa"].includes(language)
+            ? "rtl"
+            : "ltr";
+          const select = document.querySelector(".gtranslate_wrapper select");
+          if (select) select.value = "es|" + language;
+          document.getElementById("translationStatus").textContent = "";
+        } catch {
+          if (request === languageRequest) translationError();
+        }
+      }
+      document.getElementById("languageMode").value = uiLanguageMode;
+      document.getElementById("languageMode").addEventListener("change", () => {
+        uiLanguageMode = document.getElementById("languageMode").value;
+        saveLanguagePreference();
+        applyMiniAppLanguage();
+        haptic();
+      });
+      let lastReturnRefresh = 0;
+      function refreshAfterReturn() {
+        if (
+          !settings ||
+          saving ||
+          Object.keys(changes()).length ||
+          Date.now() - lastReturnRefresh < 2000
+        )
+          return;
+        lastReturnRefresh = Date.now();
+        loadSettings().catch(showError);
+      }
+      try {
+        tg?.onEvent?.("activated", refreshAfterReturn);
+      } catch {}
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") refreshAfterReturn();
+      });
+      window.addEventListener("beforeunload", (event) => {
+        if (Object.keys(changes()).length) {
+          event.preventDefault();
+          event.returnValue = "";
+        }
+      });
+      if (!initData) {
+        const content = document.getElementById("content");
+        content.setAttribute("aria-busy", "false");
+        content.replaceChildren(
+          el("div", { class: "empty" }, [
+            icon("lock"),
+            el("h2", { text: "Tu panel vive en Telegram" }),
+            el("p", {
+              text: "Entra al privado del bot, envía /miniapp y pulsa Abrir Mini App. También puedes acceder desde /config.",
+            }),
+            el("p", {
+              class: "hint",
+              text: "Si ya estás en Telegram, cierra esta ventana y vuelve a abrirla desde el botón del bot.",
+            }),
+          ]),
+        );
+        document.getElementById("connection").hidden = true;
+      } else {
+        if (currentGid) loadSettings().catch(showError);
+        loadGroups(0);
+      }
+      applyMiniAppLanguage();
+    </script>
+  </body>
+</html>

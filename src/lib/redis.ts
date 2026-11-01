@@ -13,9 +13,9 @@ export interface RedisEnv extends PerformanceEnv {
 
 export type RedisCommand = Array<string | number>;
 
-async function upstashRequest(env: RedisEnv, body: RedisCommand | RedisCommand[], pipeline = false): Promise<any> {
+async function upstashRequest(env: RedisEnv, body: RedisCommand | RedisCommand[], pipeline = false, transaction = false): Promise<any> {
   return measureIo(env, "redis", pipeline ? body.length : 1, async () => {
-    const res = await fetch(env.UPSTASH_REDIS_REST_URL.replace(/\/+$/, "") + (pipeline ? "/pipeline" : ""), {
+    const res = await fetch(env.UPSTASH_REDIS_REST_URL.replace(/\/+$/, "") + (transaction ? "/multi-exec" : pipeline ? "/pipeline" : ""), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.UPSTASH_REDIS_REST_TOKEN}`,
@@ -53,6 +53,8 @@ export interface RedisClient {
   mset(values: Record<string, string>): Promise<void>;
   /** Independent commands, in order. Not atomic; never replay after partial failure. */
   pipeline(commands: RedisCommand[]): Promise<any[]>;
+  /** Atomic batch. Does not replay a transaction after a transport failure. */
+  transaction(commands: RedisCommand[]): Promise<any[]>;
   setex(key: string, seconds: number, value: string): Promise<void>;
   del(...keys: string[]): Promise<number>;
   incr(key: string): Promise<number>;
@@ -95,6 +97,12 @@ export function createRedis(env: RedisEnv): RedisClient {
       if (!commands.length) return [];
       const data = await upstashRequest(env, commands, true);
       if (!Array.isArray(data) || data.length !== commands.length) throw new Error("Invalid Upstash pipeline response");
+      return data.map(commandResult);
+    },
+    async transaction(commands) {
+      if (!commands.length) return [];
+      const data = await upstashRequest(env, commands, true, true);
+      if (!Array.isArray(data) || data.length !== commands.length) throw new Error("Invalid Upstash transaction response");
       return data.map(commandResult);
     },
     async setex(key, seconds, value) {

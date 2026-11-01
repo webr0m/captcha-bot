@@ -24,7 +24,7 @@ export const LANG_LABELS: Record<string, string> = {
   it: "🇮🇹 Italiano",
 };
 
-const SUPPORTED_LANGS = ["es", "en", "fr", "pt", "zh", "ja", "fa", "ar", "de", "ko", "ru", "it"];
+export const SUPPORTED_LANGS = ["es", "en", "fr", "pt", "zh", "ja", "fa", "ar", "de", "ko", "ru", "it"];
 
 function detectCharset(text: string): string | null {
   const ranges: Array<[string, number, number]> = [

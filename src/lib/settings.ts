@@ -62,7 +62,10 @@ async function getChatTitle(env: EnvWithBot, chatId: number): Promise<{ title?: 
 export async function showSettingsMenu(env: EnvWithBot, api: TelegramApi, chatId: number, messageId: number, gid: number, section: SettingsSection = "home"): Promise<void> {
   const s = await getSettingsState(env, gid);
   const view = buildSettingsView(s, gid, section);
-  await api.editMessageText(chatId, messageId, view.text, { reply_markup: view.keyboard });
+  const keyboard = chatId > 0 && view.keyboard && Array.isArray(view.keyboard.inline_keyboard)
+    ? { inline_keyboard: [...view.keyboard.inline_keyboard, [{ text: "📱 Configuración web", web_app: { url: `https://verify.webrom.cc/miniapp?gid=${gid}` } }]] }
+    : view.keyboard;
+  await api.editMessageText(chatId, messageId, view.text, { reply_markup: keyboard });
 }
 
 export async function handleSettingsCallback(env: RedisEnv & { BOT_TOKEN: string }, api: TelegramApi, cb: any): Promise<void> {

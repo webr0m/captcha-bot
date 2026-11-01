@@ -32,6 +32,9 @@ Telegram ──webhook──▶ Cloudflare Worker (fetch handler)
                           │
                           └─ POST /verify   → Turnstile siteverify → set estado "ok" → editar mensaje
                           │
+                          └─ GET /miniapp   → Mini App (Telegram Web App) de configuración
+                          │     └─ /api/miniapp/* → grupos, settings y stats (valida initData)
+                          │
                           └─ cron "* * * * *" → proceso cola de tareas (tasks set) → kicks / bans / salidas / limpiezas / lockdowns
 ```
 
@@ -126,6 +129,20 @@ Los defaults se aplican cuando la clave del grupo no existe todavía. Se pueden 
 | `/unallowlink <gid> <dominio>` | Quita un dominio extra (los oficiales no se pueden quitar) |
 
 En grupos, `<gid>` se omite y se usa el grupo actual; en privado es obligatorio.
+
+## Mini App (Telegram Web App)
+
+URL: `https://verify.webrom.cc/miniapp` (también `/miniapp` en el Worker).
+
+- Se abre con el botón `📱 Configuración web` del menú `/config` o con `/miniapp`.
+- Valida `initData` firmado por Telegram y solo permite administradores del grupo.
+- Incluye captcha, CAS, anti-flood, anti-enlaces, idiomas, modo nocturno, mensajes y estadísticas. La selección del tópico de destino sigue disponible en `/config`.
+- Navegación por secciones, tarjetas de desafío, ajustes avanzados desplegables y guardado de cambios pendientes sin sobrescribir otros ajustes.
+- Apariencia Día/Noche/Automático, guardada en este dispositivo.
+- Traducción con GTranslate (el widget usado en belcanto.cl): sigue el idioma del grupo, detecta el de Telegram o permite elegir entre 12 idiomas. La preferencia de interfaz es local; el idioma de los mensajes del bot se guarda por grupo desde Inicio.
+- Lista de grupos con nombres, cinco por página y comprobación de permisos en vivo.
+- API: `/api/miniapp/groups`, `/api/miniapp/settings`, `/api/miniapp/stats`.
+- Detalles de la depuración y validación: [Mini App](docs/MINIAPP_2026-11-01.md).
 
 ## Tests y CI
 

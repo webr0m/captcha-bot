@@ -31,6 +31,7 @@ import { addTask } from "./tasks";
 import { blockIfUnauthorized, handleLanguageCallback } from "./block_lang";
 import { handleMyChatMember, ensureGroupConfigured } from "./onboarding";
 import { enforceCas } from "./cas";
+import { handleMiniAppCommand, handleMiniAppCallback } from "./miniapp";
 import {
   enforceAntiFlood,
   enforceAntiLink,
@@ -144,7 +145,12 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     if (isStartVerify) { await handleStartVerify(env, api, msg); return; }
     // /start y /start config_<gid> en privado (no deben tratarse como código de verificación)
     const privateCmd = (text.match(/^\/([a-z_]+)(?:@\S+)?(?:\s|$)/) ?? [])[1]?.toLowerCase();
-    if (privateCmd === "start") { await handleStartCommand(env, api, msg); return; }
+    if (privateCmd === "start") {
+      const miniapp = text.match(/^\/start(?:@\S+)?\s+miniapp_(-[1-9]\d*)\s*$/);
+      if (miniapp && Number.isSafeInteger(Number(miniapp[1]))) await handleMiniAppCommand(env, api, msg, Number(miniapp[1]));
+      else await handleStartCommand(env, api, msg);
+      return;
+    }
     // Un comando nunca debe interpretarse como código de verificación.
     if (!text.startsWith("/")) {
       const [lastC, lastChanV] = await rdb.mget(`jr:last_channel:${userId}`, `chanverify:last:${userId}`);
@@ -235,6 +241,7 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     if (cmd === "lang") { await handleLangCommand(env, api, msg); return; }
     if (cmd === "nightmode") { await handleNightmodeCommand(env, api, msg); return; }
     if (cmd === "config") { await handleConfigCommand(env, api, msg); return; }
+    if (cmd === "miniapp" || cmd === "app" || cmd === "webapp" || cmd === "configweb") { await handleMiniAppCommand(env, api, msg); return; }
     if (cmd === "post_verify") { await handleVerifyPublicChannel(env, api, msg); return; }
     if (cmd === "list_verified") { await handleVerifyPublicChannel(env, api, msg); return; }
     if (cmd === "known" || cmd === "groups") { await handleKnownCommand(env, api, msg); return; }
@@ -468,6 +475,11 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
   // stats:<gid> (estadísticas del grupo)
   if (data.startsWith("stats:")) {
     await handleStatsCallback(env, api, cb);
+    return;
+  }
+
+  if (data === "config_open" || data === "config_menu") {
+    await handleMiniAppCallback(env, api, cb);
     return;
   }
 

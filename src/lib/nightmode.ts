@@ -34,7 +34,7 @@ function validCoords(lat: any, lon: any): { lat: number; lon: number } | null {
   return { lat: a, lon: b };
 }
 
-async function getCoordinates(env: RedisEnv, city: string): Promise<{ lat: number; lon: number } | null> {
+export async function getCoordinates(env: RedisEnv, city: string): Promise<{ lat: number; lon: number } | null> {
   const rdb = createRedis(env);
   const cacheKey = `nightmode:geo:${String(city).trim().toLowerCase()}`;
   const cached = await rdb.get(cacheKey);
@@ -70,7 +70,7 @@ async function getCoordinates(env: RedisEnv, city: string): Promise<{ lat: numbe
   return null;
 }
 
-async function getTimezoneOffset(lat: number, lon: number): Promise<{ offset: number; time: string } | null> {
+export async function getTimezoneOffset(lat: number, lon: number): Promise<{ offset: number; time: string } | null> {
   try {
     const url = `https://api.geonames.org/timezoneJSON?lat=${lat}&lng=${lon}&username=${GEONAMES_USER}`;
     const res = await fetch(url);
@@ -144,7 +144,7 @@ function configKey(chatId: number): string {
 }
 
 /** Guarda configuración sin TTL (antes expiraba a las 24h). */
-async function saveConfig(env: RedisEnv, chatId: number, cfg: Record<string, any>): Promise<void> {
+export async function saveConfig(env: RedisEnv, chatId: number, cfg: Record<string, any>): Promise<void> {
   await createRedis(env).set(configKey(chatId), JSON.stringify(cfg));
 }
 

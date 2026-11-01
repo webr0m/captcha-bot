@@ -18,6 +18,8 @@ import { createRedis } from "./lib/redis";
 import { markVerified } from "./lib/captcha";
 import { handleUsersLog, handleUsersLogCallback } from "./lib/users";
 import { renderVerifyPage, renderInvalidVerifyPage } from "./lib/verify_page";
+import { MINIAPP_HTML } from "./lib/miniapp_page";
+import { handleMiniAppRequest } from "./lib/miniapp_routes";
 import { startPerformance, ioRequestCount } from "./lib/performance";
 import { auditKnownGroups } from "./lib/onboarding";
 
@@ -119,6 +121,15 @@ export default {
         );
       }
       return new Response("OK", { status: 200, headers: TEXT_HEADERS });
+    }
+
+    // Mini App (Telegram Web App)
+    if (request.method === "GET" && (path === "/miniapp" || path === "/miniapp/")) {
+      return new Response(MINIAPP_HTML, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" } });
+    }
+
+    if (path.startsWith("/api/miniapp/")) {
+      return handleMiniAppRequest(request, env);
     }
 
     if (request.method === "GET" && path === "/verify") {

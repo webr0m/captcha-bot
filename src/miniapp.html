@@ -1680,12 +1680,12 @@
         });
         return field(label, input);
       }
-      function numberField(label, value, min, max, onChange, hint = "") {
+      function numberField(label, value, min, max, onChange, hint = "", step = "1") {
         const input = el("input", {
           type: "number",
           min: String(min),
           max: String(max),
-          step: "1",
+          step,
           inputmode: "numeric",
         });
         input.value = value;
@@ -2038,6 +2038,8 @@
               1,
               1440,
               (v) => (s.antiflood_mute = Math.round(v * 60)),
+              "También admite fracciones de minuto.",
+              "any",
             ),
           ]),
         );

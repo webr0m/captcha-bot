@@ -32,6 +32,7 @@ import { blockIfUnauthorized, handleLanguageCallback } from "./block_lang";
 import { handleMyChatMember, ensureGroupConfigured } from "./onboarding";
 import { enforceCas } from "./cas";
 import { handleMiniAppCommand, handleMiniAppCallback } from "./miniapp";
+import { handleAdvancedSettingsCallback, handleAdvancedSettingsInput } from "./settings_advanced";
 import {
   enforceAntiFlood,
   enforceAntiLink,
@@ -161,6 +162,7 @@ async function handleMessage(env: BotEnv, api: TelegramApi, msg: any): Promise<v
     }
     // Channel verification keeps priority over the optional night-mode conversation.
     if (await handleNightmodeInput(env, api, msg)) return;
+    if (await handleAdvancedSettingsInput(env, api, msg)) return;
   }
 
   const stateKey = captcha.verifyKey(chatId, userId);
@@ -298,6 +300,10 @@ async function handleCallbackQuery(env: BotEnv, api: TelegramApi, cb: any): Prom
   }
 
   // These handlers read their own language/configuration; avoid a redundant GET.
+  if (data.startsWith("cfg:")) {
+    await handleAdvancedSettingsCallback(env, api, cb);
+    return;
+  }
   if (data.startsWith("nightmode_")) {
     await handleNightmodeCallback(env, api, cb);
     return;

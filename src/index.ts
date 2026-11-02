@@ -18,8 +18,9 @@ import { createRedis } from "./lib/redis";
 import { markVerified } from "./lib/captcha";
 import { handleUsersLog, handleUsersLogCallback } from "./lib/users";
 import { renderVerifyPage, renderInvalidVerifyPage } from "./lib/verify_page";
-import { MINIAPP_HTML } from "./lib/miniapp_page";
+import { MINIAPP_HTML, MINIAPP_AD_HTML } from "./lib/miniapp_page";
 import { handleMiniAppRequest } from "./lib/miniapp_routes";
+import { ensureMiniAppMenu } from "./lib/miniapp_menu";
 import { startPerformance, ioRequestCount } from "./lib/performance";
 import { auditKnownGroups } from "./lib/onboarding";
 
@@ -124,6 +125,17 @@ export default {
     }
 
     // Mini App (Telegram Web App)
+    if (request.method === "GET" && path === "/miniapp/ad") {
+      // Keep third-party creatives in an opaque origin, outside Telegram's
+      // initData, form values, translation engine and bot configuration.
+      return new Response(MINIAPP_AD_HTML, { headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox; frame-ancestors 'self'; base-uri 'none'",
+      } });
+    }
     if (request.method === "GET" && (path === "/miniapp" || path === "/miniapp/")) {
       return new Response(MINIAPP_HTML, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" } });
     }
@@ -239,6 +251,7 @@ export default {
     await runSweep(env, api).catch(() => console.error("task_sweep_failed"));
     if (ioRequestCount(env) <= 15) await checkNightMode(env, api).catch(() => console.error("nightmode_sweep_failed"));
     if (ioRequestCount(env) <= 20) await runCleaner(env, api).catch(() => console.error("cleaner_sweep_failed"));
+    if (ioRequestCount(env) <= 20) await ensureMiniAppMenu(env, api).catch(() => console.error("telegram_miniapp_menu_failed"));
     await auditKnownGroups(env, api).catch(() => console.error("group_audit_failed"));
     performance.finish();
   },

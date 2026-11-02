@@ -62,6 +62,7 @@ export interface RedisClient {
   expire(key: string, seconds: number): Promise<number>;
   setnx(key: string, value: string, ttlSec?: number): Promise<boolean>;
   compareSet(key: string, expected: string, value: string, seconds: number): Promise<boolean>;
+  compareDelete(key: string, expected: string): Promise<boolean>;
   smembers(key: string): Promise<string[]>;
   sismember(key: string, member: string): Promise<boolean>;
   sadd(key: string, member: string): Promise<number>;
@@ -131,6 +132,10 @@ export function createRedis(env: RedisEnv): RedisClient {
     async compareSet(key, expected, value, seconds) {
       const script = "if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3]); return 1 else return 0 end";
       return Number(await upstashCommand(env, ["EVAL", script, 1, key, expected, value, seconds])) === 1;
+    },
+    async compareDelete(key, expected) {
+      const script = "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end";
+      return Number(await upstashCommand(env, ["EVAL", script, 1, key, expected])) === 1;
     },
     async smembers(key) {
       const result = await upstashCommand(env, ["SMEMBERS", key]);

@@ -262,4 +262,12 @@ export class TelegramApi {
     const result = await this.call<any>("getChatMemberCount", { chat_id: chatId });
     return Number(result) || 0;
   }
+
+  async setChatMenuButton(menuButton: Record<string, any>, chatId?: number): Promise<boolean> {
+    return this.call<boolean>("setChatMenuButton", { menu_button: menuButton, ...(chatId ? { chat_id: chatId } : {}) });
+  }
+
+  async getChatMenuButton(chatId?: number): Promise<any> {
+    return this.call<any>("getChatMenuButton", chatId ? { chat_id: chatId } : {});
+  }
 }

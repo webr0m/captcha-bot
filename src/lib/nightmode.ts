@@ -221,6 +221,7 @@ function statusKeyboard(gid: number): any {
     inline_keyboard: [
       [{ text: "🌇 Automático por ciudad", callback_data: `nightmode_set_auto:${gid}` }],
       [{ text: "⏰ Horario manual", callback_data: `nightmode_set_manual:${gid}` }],
+      [{ text: "⏸ Desactivar modo nocturno", callback_data: `cfg:night_off:${gid}` }],
       [{ text: "🔄 Actualizar estado", callback_data: `nightmode_status:${gid}` }, { text: "❓ Ayuda", callback_data: `settings:section:${gid}:help_nightmode` }],
       [{ text: "⬅️ Volver", callback_data: `settings:${gid}` }],
     ],
@@ -488,5 +489,8 @@ async function promptNightmode(env: RedisEnv, api: TelegramApi, cb: any, gid: nu
   if (cb.message?.chat?.type === "private" && Number(cb.message.chat.id) === Number(cb.from?.id)) {
     await api.editMessageText(Number(cb.message.chat.id), Number(cb.message.message_id), text, extra);
   } else await api.sendMessage(Number(cb.from?.id), text, extra);
-  await createRedis(env).setex(`nightmode_pending:${cb.from?.id ?? 0}`, 900, JSON.stringify({ mode, chat_id: gid }));
+  await createRedis(env).transaction([
+    ["SETEX", `nightmode_pending:${cb.from?.id ?? 0}`, 900, JSON.stringify({ mode, chat_id: gid })],
+    ["DEL", `config_input:v1:${cb.from?.id ?? 0}`],
+  ]);
 }

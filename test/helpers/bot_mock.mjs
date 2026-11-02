@@ -11,6 +11,7 @@ export function mockBot(t, options = {}) {
   const admins = new Set(options.admins ?? [7]);
   let messageId = 100;
   let requestCount = 0;
+  let menuButton = { type: "commands" };
   function get(key) {
     if ((expires.get(key) ?? Infinity) <= Date.now()) { values.delete(key); sets.delete(key); expires.delete(key); }
     return values.get(key) ?? null;
@@ -46,6 +47,11 @@ export function mockBot(t, options = {}) {
       case "EVAL": {
         // compareSet: EVAL script 1 key expected value seconds.
         assert.match(key, /redis\.call\('GET'/);
+        if (key.includes("return redis.call('DEL'")) {
+          const [, target, expected] = rest;
+          if (get(target) !== expected) return 0;
+          values.delete(target); expires.delete(target); return 1;
+        }
         const [, target, expected, value, seconds] = rest;
         if (get(target) !== expected) return 0;
         values.set(target, value); expires.set(target, Date.now() + Number(seconds) * 1000); return 1;
@@ -68,6 +74,8 @@ export function mockBot(t, options = {}) {
     if (custom !== undefined) return Response.json({ ok: true, result: custom });
     let result = true;
     if (method === "getMe") result = { id: 999, username: "Antiubot", is_bot: true };
+    else if (method === "setChatMenuButton") { menuButton = body.menu_button; result = true; }
+    else if (method === "getChatMenuButton") result = menuButton;
     else if (method === "getChatMember") result = { status: admins.has(body.user_id) || body.user_id === 999 ? "administrator" : "member", can_delete_messages: true, can_restrict_members: true };
     else if (method === "getChatAdministrators") result = [...admins].map((id) => ({ user: { id }, status: "administrator" }));
     else if (method === "getChat") result = body.chat_id < 0 ? { id: body.chat_id, type: "supergroup", title: "Grupo de prueba", is_forum: options.forum ?? true, permissions: options.permissions ?? { can_send_messages: true, can_send_photos: false } } : { id: body.chat_id, first_name: "Usuario" };

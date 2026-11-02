@@ -42,6 +42,7 @@ export function buildSettingsView(s: SettingsState, gid: number, section: Settin
     text = `🔐 Captcha\n\nEstado: ${s.captcha ? "activado" : "desactivado"}\nDesafío: ${MODES[s.mode] ?? s.mode}\nTiempo: ${s.timeout}s\nAl caducar: ${ACTIONS[s.action] ?? s.action}\nMientras verifica: ${ACTIONS_2[s.action2] ?? s.action2}\n\nSelecciona el modo o ajusta una opción. ✅ indica la selección actual.`;
     rows.push([toggle("Captcha activado", s.captcha, "captcha")]);
     rows.push([button("−5 s", `setup:timeout:sub:${gid}`), button(`⏱ ${s.timeout}s`, `pop:timeout:${gid}`), button("+5 s", `setup:timeout:add:${gid}`)]);
+    link("⌨️ Escribir tiempo exacto", `cfg:input:${gid}:timeout`);
     const modes = Object.entries(MODES);
     for (let i = 0; i < modes.length; i += 2) rows.push(modes.slice(i, i + 2).map(([id, label]) => button(`${s.mode === id ? "✅ " : ""}${label}`, `mode:set:${gid}:${id}`)));
     rows.push(Object.entries(ACTIONS).map(([id, label]) => button(`${s.action === id ? "✅ " : ""}${label} al caducar`, `action:set:${gid}:${id}`)));
@@ -51,11 +52,12 @@ export function buildSettingsView(s: SettingsState, gid: number, section: Settin
   } else if (section === "moderation") {
     text = "🛡️ Moderación\n\nActiva o desactiva cada protección con un toque.\n\nCAS: comprueba la lista de Combot al entrar.\nAnti-flood: limita mensajes repetidos por usuario.\nAnti-enlaces: elimina enlaces no permitidos.\n\n✅ Activado · ⬜ Desactivado";
     rows.push([toggle("CAS · lista antispam", s.cas, "cas")], [toggle("Anti-flood", s.antiFlood, "antiflood")], [toggle("Anti-enlaces", s.antiLink, "antilink")], [nav("❓ Límites y enlaces permitidos", "help_moderation")]);
+    rows.splice(3, 0, [button("🌊 Límites y duración anti-flood", `cfg:flood:${gid}`)], [button("🔗 Gestionar enlaces permitidos", `cfg:links:${gid}:0`)]);
   } else if (section === "messages") {
     text = "🧹 Mensajes y avisos\n\nElige qué limpia el bot y si envía reportes por privado a los administradores.\n\n✅ Activado · ⬜ Desactivado";
     rows.push([toggle("Limpiar mensajes de captcha", s.delBot, "delbot")], [toggle("Limpiar entradas y salidas", s.delSys, "delsys")], [toggle("Reportar usuarios a administradores", s.admRep, "adm_rep")]);
   } else if (section === "language") {
-    text = "🌐 Idioma y filtros\n\nIdioma del bot cambia sus mensajes. El filtro de idiomas controla qué usuarios pueden escribir según su idioma de Telegram.";
+    text = "🌐 Idioma y filtros\n\nIdioma del bot cambia sus mensajes y la Mini App cuando eliges Seguir el idioma del grupo. El filtro de idiomas controla qué usuarios pueden escribir según su idioma de Telegram.\n\nLa apariencia Día/Noche y la traducción automática se ajustan dentro de la Mini App, desde el botón de apariencia.";
     link("🌐 Idioma del bot", `lang:${gid}`);
     link("🗣️ Filtro de idiomas", `langblock_menu:${gid}`);
   } else if (section === "help") {

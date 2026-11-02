@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Publicidad</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 90px;
+        overflow: hidden;
+        background: transparent;
+      }
+      body {
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      ins {
+        display: block;
+        max-width: 100%;
+      }
+      iframe {
+        display: block;
+        max-width: 100%;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      function bannerState(state, reason = "") {
+        document.body.dataset.adState = state;
+        document.body.dataset.adReason = reason;
+        parent.postMessage({ type: "miniapp-ad-state", state, reason }, "*");
+      }
+      function startBanner() {
+        bannerState("script-loaded");
+        const start = window.affilistStart;
+        if (typeof start !== "function") {
+          bannerState("unavailable", "script-api");
+          return;
+        }
+        let started = false;
+        window.affilistStart = function () {
+          if (started) return;
+          started = true;
+          start();
+        };
+        // The provider waits for window.load; handle delayed script loads too.
+        if (document.readyState === "complete") window.affilistStart();
+        const observer = new MutationObserver(() => {
+          if (document.querySelector("iframe[src], img[src], a[href]")) {
+            bannerState("ready");
+            observer.disconnect();
+          }
+        });
+        observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["src", "href"],
+        });
+        setTimeout(() => {
+          observer.disconnect();
+          if (!document.querySelector("iframe[src], img[src], a[href]"))
+            bannerState("unavailable", "no-fill");
+        }, 20000);
+      }
+    </script>
+    <ins
+      style="width: 728px; height: 90px"
+      data-width="728"
+      data-height="90"
+      data-max_height="90"
+      class="j16dd7e0692"
+      data-domain="https://data527.click"
+      data-affquery="/8723667a248063be5c06/16dd7e0692/?placementName=default"
+      ><script
+        src="https://data527.click/js/responsive.js"
+        async
+        onload="startBanner()"
+        onerror="bannerState('unavailable', 'script-network')"
+      ></script
+    ></ins>
+  </body>
+</html>

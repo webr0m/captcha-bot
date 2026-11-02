@@ -819,6 +819,16 @@
         height: 90px;
         border: 0;
       }
+      .google-banner {
+        width: 100%;
+        max-width: 728px;
+        margin: 36px auto 20px;
+      }
+      .ad-google-slot {
+        display: block;
+        width: 100%;
+        min-height: 90px;
+      }
       .save-wrap {
         position: fixed;
         z-index: 11;
@@ -1126,6 +1136,25 @@
         <div class="skeleton"></div>
         <div class="skeleton"></div>
       </div>
+      <aside
+        id="googleAdBanner"
+        class="google-banner notranslate"
+        translate="no"
+        aria-label="Publicidad de Google"
+        data-adsense-allowed="__ADSENSE_ALLOWED__"
+        hidden
+      >
+        <!-- webrom -->
+        <ins
+          id="googleAdSlot"
+          class="adsbygoogle ad-google-slot"
+          style="display: block"
+          data-ad-client="ca-pub-8258058186888619"
+          data-ad-slot="1577557462"
+          data-ad-format="auto"
+          data-full-width-responsive="true"
+        ></ins>
+      </aside>
     </main>
     <div class="save-wrap" id="saveWrap" hidden>
       <div class="save-bar">
@@ -1145,29 +1174,9 @@
         aria-label="Secciones de configuración"
       ></nav>
     </div>
+    <script type="module" src="/miniapp/ads.js"></script>
     <script>
       const tg = window.Telegram && window.Telegram.WebApp;
-      window.addEventListener("message", (event) => {
-        const adFrame = document.getElementById("adFrame");
-        if (
-          event.source !== adFrame.contentWindow ||
-          event.data?.type !== "miniapp-ad-state"
-        )
-          return;
-        const state = event.data.state;
-        if (!["script-loaded", "ready", "unavailable"].includes(state)) return;
-        const banner = document.getElementById("adBanner");
-        banner.dataset.adState = state;
-        banner.dataset.adReason = [
-          "script-api",
-          "script-network",
-          "no-fill",
-        ].includes(event.data.reason)
-          ? event.data.reason
-          : "";
-        if (state === "unavailable") banner.hidden = true;
-        else if (state === "ready" && settings) banner.hidden = false;
-      });
       try {
         if (tg) {
           tg.ready();
@@ -1232,6 +1241,19 @@
         Number.isSafeInteger(requestedGid) && requestedGid < 0
           ? requestedGid
           : null;
+      // Capture launch data before loading advertising; do not share it in URLs.
+      if (initData) {
+        try {
+          history.replaceState(history.state, "", location.pathname);
+        } catch {}
+      }
+      // Capture Telegram's launch data before any advertising script runs.
+      // Keep signed initData and the selected group out of the page URL.
+      if (initData) {
+        try {
+          history.replaceState(history.state, "", location.pathname);
+        } catch {}
+      }
       let settings = null,
         baseline = null,
         groupsPage = 0,
@@ -1876,12 +1898,10 @@
           c = document.getElementById("content");
         c.replaceChildren();
         c.setAttribute("aria-busy", "false");
-        // One ad load per opening, shared by every section and group. No refresh
-        // timers and no bot/session data in the frame URL.
+        // Stable placements, initialized once per opening, with no ad refresh.
         const banner = document.getElementById("adBanner");
-        banner.hidden = banner.dataset.adState === "unavailable";
-        const adFrame = document.getElementById("adFrame");
-        if (!adFrame.hasAttribute("src")) adFrame.src = adFrame.dataset.src;
+        banner.dataset.enabled = "true";
+        document.dispatchEvent(new Event("miniapp-ads-show"));
         document.getElementById("groupTitle").textContent = title;
         document.getElementById("groupBar").hidden = false;
         document.getElementById("navWrap").hidden = false;

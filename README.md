@@ -145,6 +145,7 @@ URL: `https://verify.webrom.cc/miniapp` (también `/miniapp` en el Worker).
 - Detalles de la depuración y validación: [Mini App](docs/MINIAPP_2026-11-01.md).
 - El botón Menú de Telegram abre el panel web. `/config` incluye tiempo exacto del captcha, límites y duración anti-flood, gestión de enlaces permitidos y desactivación nocturna, sincronizados con la Mini App.
 - Banner publicitario aislado del panel y adaptable al ancho disponible. [Integración en Telegram y publicidad](docs/TELEGRAM_Y_PUBLICIDAD_2026-11-01.md).
+- AdSense preparado como bloque estático independiente: sin rotación ni refresco, bloqueado dentro de Telegram/iframes y en regiones sin consentimiento verificado. [Alcance y límites](docs/ADSENSE_2026-11-01.md).
 
 ## Tests y CI
 

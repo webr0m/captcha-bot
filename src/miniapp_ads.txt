@@ -1,0 +1,58 @@
+// Stable placements: no carousel, automatic refresh or repeat requests.
+export function canLoadGoogleAds({ approved, framed, telegram, webview }) {
+  return approved === true && !framed && !telegram && !webview;
+}
+
+export function mountAdvertising(document, window) {
+  const banner = document.getElementById("adBanner");
+  const frame = document.getElementById("adFrame");
+  const googleBanner = document.getElementById("googleAdBanner");
+  const googleSlot = document.getElementById("googleAdSlot");
+  let started = false;
+  let framed = true;
+  try { framed = window.top !== window.self; } catch {}
+  const allowed = canLoadGoogleAds({
+    approved: googleBanner.dataset.adsenseAllowed === "true",
+    framed,
+    telegram: !!window.Telegram?.WebApp?.initData,
+    webview: /Telegram|WebView|; wv\)/i.test(window.navigator?.userAgent || ""),
+  });
+  googleBanner.dataset.eligible = String(allowed);
+  function start() {
+    if (started) return;
+    started = true;
+    banner.hidden = false;
+    if (!frame.hasAttribute("src")) frame.src = frame.dataset.src;
+    if (!allowed) return;
+    googleBanner.hidden = false;
+    window.requestAnimationFrame(() => {
+      const script = document.createElement("script");
+      script.id = "googleAdScript";
+      script.async = true;
+      script.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-8258058186888619";
+      script.crossOrigin = "anonymous";
+      script.onerror = () => { googleBanner.dataset.adState = "script-network"; googleBanner.hidden = true; };
+      document.head.appendChild(script);
+      try { (window.adsbygoogle = window.adsbygoogle || []).push({}); }
+      catch { googleBanner.dataset.adState = "initialization-error"; googleBanner.hidden = true; }
+    });
+  }
+  const observer = new window.MutationObserver(() => {
+    const status = googleSlot.getAttribute("data-ad-status");
+    if (status) googleBanner.dataset.adState = status;
+    if (status === "unfilled") googleBanner.hidden = true;
+  });
+  observer.observe(googleSlot, { attributes: true, attributeFilter: ["data-ad-status"] });
+  window.addEventListener("message", event => {
+    if (event.source !== frame.contentWindow || event.data?.type !== "miniapp-ad-state") return;
+    if (!["script-loaded", "ready", "unavailable"].includes(event.data.state)) return;
+    banner.dataset.adState = event.data.state;
+    banner.dataset.adReason = ["script-api", "script-network", "no-fill"].includes(event.data.reason) ? event.data.reason : "";
+    if (event.data.state === "unavailable") banner.hidden = true;
+  });
+  document.addEventListener("miniapp-ads-show", start);
+  if (banner.dataset.enabled === "true") start();
+  return { start };
+}
+
+if (typeof document !== "undefined") mountAdvertising(document, window);

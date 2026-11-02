@@ -18,13 +18,14 @@ import { createRedis } from "./lib/redis";
 import { markVerified } from "./lib/captcha";
 import { handleUsersLog, handleUsersLogCallback } from "./lib/users";
 import { renderVerifyPage, renderInvalidVerifyPage } from "./lib/verify_page";
-import { MINIAPP_HTML, MINIAPP_AD_HTML } from "./lib/miniapp_page";
+import { MINIAPP_HTML, MINIAPP_AD_HTML, MINIAPP_ADS_JS } from "./lib/miniapp_page";
 import { handleMiniAppRequest } from "./lib/miniapp_routes";
+import { adsenseAllowedForRequest, type AdSenseEnv } from "./lib/adsense_policy";
 import { ensureMiniAppMenu } from "./lib/miniapp_menu";
 import { startPerformance, ioRequestCount } from "./lib/performance";
 import { auditKnownGroups } from "./lib/onboarding";
 
-export type Env = BotEnv & {
+export type Env = BotEnv & AdSenseEnv & {
   TURNSTILE_SECRET?: string;
   TURNSTILE_SITE_KEY?: string;
   WEBHOOK_SECRET?: string;
@@ -125,6 +126,11 @@ export default {
     }
 
     // Mini App (Telegram Web App)
+    if (request.method === "GET" && path === "/miniapp/ads.js") {
+      return new Response(MINIAPP_ADS_JS, { headers: {
+        "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+      } });
+    }
     if (request.method === "GET" && path === "/miniapp/ad") {
       // Keep third-party creatives in an opaque origin, outside Telegram's
       // initData, form values, translation engine and bot configuration.
@@ -137,7 +143,9 @@ export default {
       } });
     }
     if (request.method === "GET" && (path === "/miniapp" || path === "/miniapp/")) {
-      return new Response(MINIAPP_HTML, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" } });
+      const country = typeof request.cf?.country === "string" ? request.cf.country : undefined;
+      const html = MINIAPP_HTML.replace("__ADSENSE_ALLOWED__", String(adsenseAllowedForRequest(env, country, url.hostname)));
+      return new Response(html, { status: 200, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" } });
     }
 
     if (path.startsWith("/api/miniapp/")) {
